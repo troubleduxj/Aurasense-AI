@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { DataView, DataSource, CalculatedField } from '../types';
+import { DataView, DataSource, CalculatedField, DataViewField } from '../types';
 import { MOCK_TDENGINE_SCHEMA } from '../mockData';
 
 interface ViewPageProps {
@@ -27,6 +27,8 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
     sourceId: string;
     tableName: string;
     fields: string[];
+    // [V3.1] New model structure
+    model: Record<string, DataViewField>;
     calculatedFields: CalculatedField[]; 
     filter: string;
     mode: 'GUI' | 'SQL';
@@ -36,6 +38,7 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
     sourceId: '',
     tableName: '',
     fields: ['name', 'status', 'temperature'],
+    model: {},
     calculatedFields: [],
     filter: "status == 'online'",
     mode: 'GUI',
@@ -54,6 +57,7 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
           sourceId: view.sourceId,
           tableName: view.tableName || '',
           fields: view.fields,
+          model: view.model || {}, // Load existing model
           calculatedFields: view.calculatedFields || [],
           filter: view.filter || '',
           mode: view.mode || 'GUI',
@@ -61,11 +65,17 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
         });
       }
     } else {
+      // Default Init
+      const defaultFields = ['name', 'status'];
+      const defaultModel: Record<string, DataViewField> = {};
+      defaultFields.forEach(f => defaultModel[f] = { name: f });
+
       setViewForm({
         name: '新数据视图 ' + (dataViews.length + 1),
         sourceId: dataSources[0]?.id || '',
         tableName: '',
-        fields: ['name', 'status'],
+        fields: defaultFields,
+        model: defaultModel,
         calculatedFields: [],
         filter: '',
         mode: 'GUI',
@@ -87,9 +97,16 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
                   });
                   // Remove * if present, replace with default fields for demo
                   if (columns.includes('*')) {
-                      setViewForm(prev => ({ ...prev, fields: ['name', 'status', 'temperature', 'cpu', 'ts'] }));
+                      // Mock logic for *
+                      const fields = ['name', 'status', 'temperature', 'cpu', 'ts'];
+                      const model = { ...viewForm.model };
+                      fields.forEach(f => { if(!model[f]) model[f] = { name: f }; });
+                      setViewForm(prev => ({ ...prev, fields, model }));
                   } else {
-                      setViewForm(prev => ({ ...prev, fields: columns }));
+                      const fields = columns;
+                      const model = { ...viewForm.model };
+                      fields.forEach(f => { if(!model[f]) model[f] = { name: f }; });
+                      setViewForm(prev => ({ ...prev, fields, model }));
                   }
               }
           } catch(e) { /* ignore parse errors while typing */ }
@@ -138,26 +155,60 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
   const handleToggleField = (field: string) => {
     setViewForm(prev => {
       const exists = prev.fields.includes(field);
+      const newFields = exists ? prev.fields.filter(f => f !== field) : [...prev.fields, field];
+      
+      // Update Model
+      const newModel = { ...prev.model };
+      if (!exists) {
+          // Add default model entry
+          newModel[field] = { name: field, alias: '', type: 'STRING' }; // Default type guess?
+      } else {
+          // Optional: remove from model to clean up? Or keep it.
+          delete newModel[field];
+      }
+
       return {
         ...prev,
-        fields: exists ? prev.fields.filter(f => f !== field) : [...prev.fields, field]
+        fields: newFields,
+        model: newModel
       };
     });
   };
 
-  const handleAddCalculatedField = () => {
-      if (!newCalcField.name || !newCalcField.expression) return;
+  const handleModelUpdate = (key: string, field: keyof DataViewField, value: any) => {
       setViewForm(prev => ({
           ...prev,
-          calculatedFields: [...prev.calculatedFields, { ...newCalcField }]
+          model: {
+              ...prev.model,
+              [key]: { ...prev.model[key], [field]: value }
+          }
+      }));
+  };
+
+  const handleAddCalculatedField = () => {
+      if (!newCalcField.name || !newCalcField.expression) return;
+      
+      const newModel = { ...viewForm.model };
+      // Also register calc field in model for metadata editing
+      newModel[newCalcField.name] = { name: newCalcField.name, alias: newCalcField.name, type: 'NUMBER' }; // Default calc field usually number
+
+      setViewForm(prev => ({
+          ...prev,
+          calculatedFields: [...prev.calculatedFields, { ...newCalcField }],
+          model: newModel
       }));
       setNewCalcField({ name: '', expression: '' });
   };
 
   const handleRemoveCalculatedField = (idx: number) => {
+      const fieldName = viewForm.calculatedFields[idx].name;
+      const newModel = { ...viewForm.model };
+      delete newModel[fieldName];
+
       setViewForm(prev => ({
           ...prev,
-          calculatedFields: prev.calculatedFields.filter((_, i) => i !== idx)
+          calculatedFields: prev.calculatedFields.filter((_, i) => i !== idx),
+          model: newModel
       }));
   };
 
@@ -168,6 +219,7 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
       sourceId: viewForm.sourceId,
       tableName: viewForm.tableName,
       fields: viewForm.fields,
+      model: viewForm.model, // Save Model
       calculatedFields: viewForm.calculatedFields,
       filter: viewForm.filter,
       mode: viewForm.mode,
@@ -190,6 +242,14 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
       }, 1000);
     }
   };
+
+  // Combine source fields and calculated fields for metadata editing
+  const allEditableFields = useMemo(() => {
+      return [
+          ...viewForm.fields, 
+          ...viewForm.calculatedFields.map(f => f.name)
+      ];
+  }, [viewForm.fields, viewForm.calculatedFields]);
 
   return (
     <div className="flex h-full gap-4 relative overflow-hidden pb-4">
@@ -369,12 +429,12 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
                             </div>
                         </div>
 
-                        {/* 2. 字段映射 (GUI) */}
+                        {/* 2. 字段映射 (GUI) - Enhanced UI */}
                         <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm space-y-6 animate-in fade-in">
                             <div className="flex justify-between items-center mb-2">
                                 <div className="flex items-center gap-3">
                                     <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-sm">2</div>
-                                    <h3 className="font-bold text-slate-800">字段选择与映射</h3>
+                                    <h3 className="font-bold text-slate-800">字段选择 (Field Selection)</h3>
                                 </div>
                                 <div className="relative">
                                     <input 
@@ -388,6 +448,7 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
                                 </div>
                             </div>
 
+                            {/* Field Picker Tags */}
                             <div className="space-y-6">
                                 {Object.entries(activeFieldGroups).map(([category, fields]) => {
                                     const visibleFields = fields.filter(f => f.toLowerCase().includes(fieldSearchTerm.toLowerCase()));
@@ -480,6 +541,91 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
                                 )}
                             </div>
                         </div>
+
+                        {/* 4. 语义模型配置 (Semantic Layer) */}
+                        {allEditableFields.length > 0 && (
+                            <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm space-y-6 animate-in fade-in">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <div className="w-8 h-8 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center font-black text-sm">4</div>
+                                    <h3 className="font-bold text-slate-800">语义模型配置 (Semantic Layer)</h3>
+                                </div>
+                                
+                                <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white">
+                                    <div className="bg-slate-50 px-6 py-3 border-b border-slate-100 flex justify-between items-center">
+                                        <h4 className="text-xs font-bold text-slate-700">字段属性定义</h4>
+                                        <span className="text-[10px] text-slate-400 font-mono">{allEditableFields.length} Fields (Source + Calculated)</span>
+                                    </div>
+                                    <table className="w-full text-left">
+                                        <thead>
+                                            <tr className="bg-slate-50/50 border-b border-slate-100">
+                                                <th className="px-6 py-3 text-[10px] font-black text-slate-400 uppercase w-40">Key</th>
+                                                <th className="px-6 py-3 text-[10px] font-black text-slate-400 uppercase">Alias (显示名)</th>
+                                                <th className="px-6 py-3 text-[10px] font-black text-slate-400 uppercase w-32">Type</th>
+                                                <th className="px-6 py-3 text-[10px] font-black text-slate-400 uppercase w-32">Unit</th>
+                                                <th className="px-6 py-3 text-[10px] font-black text-slate-400 uppercase">Description</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-50">
+                                            {allEditableFields.map(key => {
+                                                const isCalculated = viewForm.calculatedFields.some(f => f.name === key);
+                                                const fieldConfig = viewForm.model[key] || { name: key };
+                                                return (
+                                                    <tr key={key} className="hover:bg-slate-50 transition-colors">
+                                                        <td className="px-6 py-3">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-xs font-mono font-bold text-slate-600">{key}</span>
+                                                                {isCalculated && (
+                                                                    <span className="text-[8px] bg-emerald-50 text-emerald-600 border border-emerald-100 px-1 rounded uppercase font-bold tracking-tight">Calc</span>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-3">
+                                                            <input 
+                                                                type="text" 
+                                                                value={fieldConfig.alias || ''} 
+                                                                onChange={e => handleModelUpdate(key, 'alias', e.target.value)}
+                                                                className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-indigo-400 outline-none text-xs font-medium py-1 px-1 transition-colors"
+                                                                placeholder={key}
+                                                            />
+                                                        </td>
+                                                        <td className="px-6 py-3">
+                                                            <select 
+                                                                value={fieldConfig.type || 'STRING'} 
+                                                                onChange={e => handleModelUpdate(key, 'type', e.target.value)}
+                                                                className="bg-transparent border border-transparent hover:bg-white hover:border-slate-200 rounded text-xs font-bold text-slate-600 outline-none py-1 px-2 cursor-pointer"
+                                                            >
+                                                                <option value="STRING">STRING</option>
+                                                                <option value="NUMBER">NUMBER</option>
+                                                                <option value="DATE">DATE</option>
+                                                                <option value="BOOLEAN">BOOLEAN</option>
+                                                            </select>
+                                                        </td>
+                                                        <td className="px-6 py-3">
+                                                            <input 
+                                                                type="text" 
+                                                                value={fieldConfig.unit || ''} 
+                                                                onChange={e => handleModelUpdate(key, 'unit', e.target.value)}
+                                                                className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-indigo-400 outline-none text-xs font-medium py-1 px-1"
+                                                                placeholder="-"
+                                                            />
+                                                        </td>
+                                                        <td className="px-6 py-3">
+                                                            <input 
+                                                                type="text" 
+                                                                value={fieldConfig.description || ''} 
+                                                                onChange={e => handleModelUpdate(key, 'description', e.target.value)}
+                                                                className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-indigo-400 outline-none text-xs text-slate-500 py-1 px-1"
+                                                                placeholder="Description..."
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
                     </>
                 ) : (
                     /* --- SQL MODE --- */
@@ -509,7 +655,7 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
                     </div>
                 )}
 
-                {/* 4. 实时预览 (Always Visible) */}
+                {/* 4. 实时预览 (Always Visible) - Now visually Step 5? Or just Preview */}
                 <div className="bg-slate-900 rounded-[32px] p-8 shadow-2xl space-y-6">
                     <div className="flex items-center gap-3">
                         <div className="flex gap-1.5">
@@ -521,28 +667,20 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
                     </div>
                     
                     <div className="grid grid-cols-1 gap-6">
-                        {/* SQL Preview (Only in GUI mode) */}
-                        {viewForm.mode === 'GUI' && (
-                            <div className="bg-slate-800/50 p-6 rounded-2xl border border-white/5 font-mono text-xs leading-relaxed overflow-x-auto custom-scrollbar group hover:border-white/10 transition-colors">
-                                <div><span className="text-pink-400 font-bold">SELECT</span> <span className="text-blue-300">{[...viewForm.fields, ...viewForm.calculatedFields.map(cf => `${cf.expression} AS ${cf.name}`)].join(', ')}</span></div>
-                                <div><span className="text-pink-400 font-bold">FROM</span> <span className="text-emerald-400">{isTDengine ? `${JSON.parse(selectedSource?.config || '{}').db || 'db'}.${effectiveStable || 'stable_name'}` : (selectedSource?.name || 'undefined_source')}</span></div>
-                                {viewForm.filter && (
-                                    <div><span className="text-pink-400 font-bold">WHERE</span> <span className="text-amber-300">{viewForm.filter}</span></div>
-                                )}
-                                {isTDengine && <div><span className="text-pink-400 font-bold">LIMIT</span> <span className="text-purple-300">10</span></div>}
-                            </div>
-                        )}
-
                         {/* Data Table Preview */}
                         <div className="bg-white rounded-xl overflow-hidden shadow-inner">
                             <table className="w-full text-left">
                             <thead className="bg-slate-100 border-b border-slate-200">
                                 <tr>
                                     {viewForm.fields.slice(0, 5).map(f => (
-                                        <th key={f} className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase">{f}</th>
+                                        <th key={f} className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase">
+                                            {viewForm.model[f]?.alias || f}
+                                        </th>
                                     ))}
                                     {viewForm.calculatedFields.map(f => (
-                                        <th key={f.name} className="px-4 py-3 text-[10px] font-black text-emerald-600 uppercase bg-emerald-50">{f.name}</th>
+                                        <th key={f.name} className="px-4 py-3 text-[10px] font-black text-emerald-600 uppercase bg-emerald-50">
+                                            {viewForm.model[f.name]?.alias || f.name}
+                                        </th>
                                     ))}
                                     {viewForm.fields.length > 5 && <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase">...</th>}
                                 </tr>

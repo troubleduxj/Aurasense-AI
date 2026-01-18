@@ -1,15 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { ChartConfig, DataView, Device, ChartStyle, AggregationType, FormatConfig, ThresholdRule, ThresholdOperator, ReferenceLine, AnalysisConfig, ContainerConfig } from '../types';
+import { ChartConfig, DataView, Device, ChartStyle, AggregationType, FormatConfig, ThresholdRule, ThresholdOperator, ReferenceLine, AnalysisConfig, ContainerConfig, RowAction, ChartInteractionConfig, InteractionParamMapping, Dashboard } from '../types';
 import { RenderChart } from '../components/RenderChart';
-
-interface ChartLabPageProps {
-  charts: ChartConfig[];
-  dataViews: DataView[];
-  devices: Device[];
-  onSaveChart: (chart: ChartConfig) => void;
-  onDeleteChart: (id: string) => void;
-}
 
 // Preset color palettes
 const COLOR_PALETTES = [
@@ -21,10 +13,30 @@ const COLOR_PALETTES = [
   { name: 'Neon Cyber', colors: ['#00ff9f', '#00b8ff', '#001eff', '#bd00ff', '#d600ff'] },
 ];
 
-export const ChartLabPage: React.FC<ChartLabPageProps> = ({ charts, dataViews, devices, onSaveChart, onDeleteChart }) => {
+const ACTION_ICONS = [
+    { label: '无图标', value: '' },
+    { label: '查看 (Eye)', value: 'M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z' },
+    { label: '编辑 (Pencil)', value: 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z' },
+    { label: '删除 (Trash)', value: 'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16' },
+    { label: '导出 (Download)', value: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4' },
+    { label: '发送 (Send)', value: 'M12 19l9 2-9-18-9 18 9-2zm0 0v-8' },
+    { label: '设置 (Cog)', value: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z' }
+];
+
+interface ChartLabPageProps {
+  charts: ChartConfig[];
+  dataViews: DataView[];
+  devices: Device[];
+  dashboards?: Dashboard[]; // [V3.2] Add dashboards for interaction config
+  onSaveChart: (chart: ChartConfig) => void;
+  onDeleteChart: (id: string) => void;
+}
+
+export const ChartLabPage: React.FC<ChartLabPageProps> = ({ charts, dataViews, devices, dashboards = [], onSaveChart, onDeleteChart }) => {
   const [editingChart, setEditingChart] = useState<ChartConfig | null>(null);
-  const [activeTab, setActiveTab] = useState<'data' | 'style'>('data');
+  const [activeTab, setActiveTab] = useState<'data' | 'style' | 'interaction'>('data');
   
+  // ... (keep state initializations) ...
   const [chartForm, setChartForm] = useState<{
     name: string;
     viewId: string;
@@ -37,6 +49,7 @@ export const ChartLabPage: React.FC<ChartLabPageProps> = ({ charts, dataViews, d
     content: string; // V2-6
     analysis: AnalysisConfig; // V2-8
     container: ContainerConfig; // V2-5
+    interaction: ChartInteractionConfig; // V3.2
   }>({
     name: '',
     viewId: '',
@@ -55,7 +68,13 @@ export const ChartLabPage: React.FC<ChartLabPageProps> = ({ charts, dataViews, d
       referenceLines: [],
       fontSize: 14,
       textAlign: 'left',
-      background: 'transparent'
+      background: undefined,
+      textColor: undefined,
+      borderRadius: 32, // Default
+      enablePagination: false, // V3.0
+      pageSize: 10,
+      showRowNumber: false,
+      rowActions: [] // V3.3
     },
     format: {
         type: 'number',
@@ -71,6 +90,10 @@ export const ChartLabPage: React.FC<ChartLabPageProps> = ({ charts, dataViews, d
     container: {
         childChartIds: [],
         interval: 5
+    },
+    interaction: {
+        type: 'none',
+        params: []
     }
   });
 
@@ -78,6 +101,10 @@ export const ChartLabPage: React.FC<ChartLabPageProps> = ({ charts, dataViews, d
   const [newThreshold, setNewThreshold] = useState<ThresholdRule>({ id: '', operator: '>', value: 80, color: '#ef4444' });
   // State for adding new reference line
   const [newRefLine, setNewRefLine] = useState<ReferenceLine>({ id: '', name: 'Limit', type: 'constant', value: 100, color: '#ef4444' });
+  // State for adding new action
+  const [newAction, setNewAction] = useState<RowAction>({ id: '', label: 'View', type: 'default', icon: '' });
+  // State for adding interaction param
+  const [newParam, setNewParam] = useState<InteractionParamMapping>({ id: '', sourceKey: 'name', targetKey: '' });
 
   useEffect(() => {
     if (editingChart) {
@@ -101,12 +128,20 @@ export const ChartLabPage: React.FC<ChartLabPageProps> = ({ charts, dataViews, d
           referenceLines: editingChart.style?.referenceLines || [],
           fontSize: editingChart.style?.fontSize || 14,
           textAlign: editingChart.style?.textAlign || 'left',
-          background: editingChart.style?.background || 'transparent'
+          background: editingChart.style?.background,
+          textColor: editingChart.style?.textColor,
+          borderRadius: editingChart.style?.borderRadius ?? 32,
+          enablePagination: editingChart.style?.enablePagination || false,
+          pageSize: editingChart.style?.pageSize || 10,
+          showRowNumber: editingChart.style?.showRowNumber || false,
+          rowActions: editingChart.style?.rowActions || [],
+          columnWidths: editingChart.style?.columnWidths || {}
         },
         format: editingChart.format || { type: 'number', precision: 1, unitSuffix: '' },
         content: editingChart.content || '',
         analysis: editingChart.analysis || { enableMovingAverage: false, movingAverageWindow: 5, trendLineColor: '#cbd5e1' },
-        container: editingChart.container || { childChartIds: [], interval: 5 }
+        container: editingChart.container || { childChartIds: [], interval: 5 },
+        interaction: editingChart.interaction || { type: 'none', params: [] }
       });
       setActiveTab('data'); 
     }
@@ -142,62 +177,49 @@ export const ChartLabPage: React.FC<ChartLabPageProps> = ({ charts, dataViews, d
     setEditingChart(null);
   };
 
+  // ... (keep aggregation and threshold handlers) ...
   const handleAggregationChange = (metric: string, type: AggregationType) => {
-      setChartForm(prev => ({
-          ...prev,
-          aggregations: { ...prev.aggregations, [metric]: type }
-      }));
+      setChartForm(prev => ({ ...prev, aggregations: { ...prev.aggregations, [metric]: type } }));
   };
-
-  const handleAddThreshold = () => {
-      setChartForm(prev => ({
-          ...prev,
-          style: {
-              ...prev.style,
-              thresholds: [...(prev.style.thresholds || []), { ...newThreshold, id: `rule-${Date.now()}` }]
-          }
-      }));
+  const handleAddThreshold = () => setChartForm(prev => ({ ...prev, style: { ...prev.style, thresholds: [...(prev.style.thresholds || []), { ...newThreshold, id: `rule-${Date.now()}` }] } }));
+  const handleRemoveThreshold = (idx: number) => setChartForm(prev => ({ ...prev, style: { ...prev.style, thresholds: (prev.style.thresholds || []).filter((_, i) => i !== idx) } }));
+  const handleAddRefLine = () => setChartForm(prev => ({ ...prev, style: { ...prev.style, referenceLines: [...(prev.style.referenceLines || []), { ...newRefLine, id: `ref-${Date.now()}` }] } }));
+  const handleRemoveRefLine = (idx: number) => setChartForm(prev => ({ ...prev, style: { ...prev.style, referenceLines: (prev.style.referenceLines || []).filter((_, i) => i !== idx) } }));
+  const handleAddAction = () => {
+      const finalId = newAction.id.trim() || `act-${Date.now()}`;
+      setChartForm(prev => ({ ...prev, style: { ...prev.style, rowActions: [...(prev.style.rowActions || []), { ...newAction, id: finalId, label: newAction.label || 'Action' }] } }));
+      setNewAction({ id: '', label: 'View', type: 'default', icon: '' });
   };
-
-  const handleRemoveThreshold = (idx: number) => {
-      setChartForm(prev => ({
-          ...prev,
-          style: {
-              ...prev.style,
-              thresholds: (prev.style.thresholds || []).filter((_, i) => i !== idx)
-          }
-      }));
-  };
-
-  const handleAddRefLine = () => {
-      setChartForm(prev => ({
-          ...prev,
-          style: {
-              ...prev.style,
-              referenceLines: [...(prev.style.referenceLines || []), { ...newRefLine, id: `ref-${Date.now()}` }]
-          }
-      }));
-  };
-
-  const handleRemoveRefLine = (idx: number) => {
-      setChartForm(prev => ({
-          ...prev,
-          style: {
-              ...prev.style,
-              referenceLines: (prev.style.referenceLines || []).filter((_, i) => i !== idx)
-          }
-      }));
-  };
-
-  // Toggle child chart for container
+  const handleRemoveAction = (idx: number) => setChartForm(prev => ({ ...prev, style: { ...prev.style, rowActions: (prev.style.rowActions || []).filter((_, i) => i !== idx) } }));
   const handleToggleChildChart = (chartId: string) => {
       setChartForm(prev => {
           const currentIds = prev.container.childChartIds || [];
-          const newIds = currentIds.includes(chartId) 
-              ? currentIds.filter(id => id !== chartId)
-              : [...currentIds, chartId];
+          const newIds = currentIds.includes(chartId) ? currentIds.filter(id => id !== chartId) : [...currentIds, chartId];
           return { ...prev, container: { ...prev.container, childChartIds: newIds } };
       });
+  };
+
+  // --- Interaction Handlers ---
+  const handleAddParam = () => {
+      if(!newParam.targetKey) return;
+      setChartForm(prev => ({
+          ...prev,
+          interaction: {
+              ...prev.interaction,
+              params: [...(prev.interaction.params || []), { ...newParam, id: `p-${Date.now()}` }]
+          }
+      }));
+      setNewParam({ id: '', sourceKey: 'name', targetKey: '' });
+  };
+
+  const handleRemoveParam = (id: string) => {
+      setChartForm(prev => ({
+          ...prev,
+          interaction: {
+              ...prev.interaction,
+              params: (prev.interaction.params || []).filter(p => p.id !== id)
+          }
+      }));
   };
 
   const isRichMedia = chartForm.type === 'text' || chartForm.type === 'image';
@@ -208,41 +230,28 @@ export const ChartLabPage: React.FC<ChartLabPageProps> = ({ charts, dataViews, d
         {/* Chart Grid List */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {charts.map(c => (
-                <div key={c.id} className="h-64 cursor-pointer hover:ring-4 hover:ring-indigo-100 rounded-[32px] transition-all relative group bg-white border border-slate-100 shadow-sm" onClick={() => setEditingChart(c)}>
-                   <div className="h-full p-4 pointer-events-none">
-                       {/* Render preview non-interactive */}
-                       {/* Pass allCharts to allow recursive container rendering in preview */}
+                <div 
+                    key={c.id} 
+                    className="h-64 cursor-pointer hover:ring-4 hover:ring-indigo-100 rounded-[32px] transition-all relative group" 
+                    onClick={() => setEditingChart(c)}
+                >
+                   <div className="h-full w-full pointer-events-none">
                        <RenderChart chart={c} devices={devices} dataView={dataViews.find(v => v.id === c.viewId)} dataViews={dataViews} allCharts={charts} />
                    </div>
-                   
-                   {/* Delete Button */}
                    <button 
-                      onClick={(e) => {
-                          e.stopPropagation();
-                          if(window.confirm('确定要删除此图表吗？')) {
-                              onDeleteChart(c.id);
-                          }
-                      }}
+                      onClick={(e) => { e.stopPropagation(); if(window.confirm('Confirm delete?')) onDeleteChart(c.id); }}
                       className="absolute top-4 right-4 p-2 bg-white/80 backdrop-blur rounded-full text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all opacity-0 group-hover:opacity-100 shadow-sm z-20"
-                      title="删除图表"
                    >
                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                    </button>
                 </div>
             ))}
-            {/* New Add Card */}
-            <div
-                onClick={handleCreateNewChart}
-                className="h-64 border-2 border-dashed border-slate-200 rounded-[32px] flex flex-col items-center justify-center text-slate-300 hover:border-indigo-300 hover:text-indigo-400 hover:bg-white/50 transition-all cursor-pointer group"
-            >
-                <div className="w-16 h-16 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform group-hover:bg-indigo-50 group-hover:border-indigo-100">
-                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
-                </div>
+            <div onClick={handleCreateNewChart} className="h-64 border-2 border-dashed border-slate-200 rounded-[32px] flex flex-col items-center justify-center text-slate-300 hover:border-indigo-300 hover:text-indigo-400 hover:bg-white/50 transition-all cursor-pointer group">
+                <div className="w-16 h-16 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform group-hover:bg-indigo-50 group-hover:border-indigo-100"><svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg></div>
                 <span className="text-xs font-bold uppercase tracking-widest">创建新图表</span>
             </div>
         </div>
 
-        {/* --- 图表配置弹窗 --- */}
       {editingChart && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-md animate-in fade-in duration-300">
           <div className="bg-white rounded-[48px] shadow-2xl border border-white/40 w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
@@ -254,37 +263,24 @@ export const ChartLabPage: React.FC<ChartLabPageProps> = ({ charts, dataViews, d
                
                {/* Tab Switcher */}
                <div className="flex bg-slate-100 p-1 rounded-xl">
-                    <button 
-                        onClick={() => setActiveTab('data')}
-                        className={`px-6 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'data' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                    >
-                        数据与内容
-                    </button>
-                    <button 
-                        onClick={() => setActiveTab('style')}
-                        className={`px-6 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'style' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                    >
-                        样式与告警
-                    </button>
+                    <button onClick={() => setActiveTab('data')} className={`px-6 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'data' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>数据配置</button>
+                    <button onClick={() => setActiveTab('style')} className={`px-6 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'style' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>样式告警</button>
+                    <button onClick={() => setActiveTab('interaction')} className={`px-6 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'interaction' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>交互钻取</button>
                </div>
 
-               <button onClick={() => setEditingChart(null)} className="p-3 text-slate-400 hover:text-rose-500 rounded-2xl transition-all duration-300">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
-               </button>
+               <button onClick={() => setEditingChart(null)} className="p-3 text-slate-400 hover:text-rose-500 rounded-2xl transition-all duration-300"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg></button>
             </div>
             
             <div className="flex-1 flex overflow-hidden">
                 {/* Configuration Panel */}
                 <div className="w-1/2 overflow-y-auto custom-scrollbar p-8 border-r border-slate-50">
                     
-                    {/* --- DATA TAB CONTENT --- */}
                     {activeTab === 'data' && (
                         <div className="space-y-8 animate-in slide-in-from-left-4 duration-300">
                             <div>
                                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">组件名称</label>
                                 <input type="text" value={chartForm.name} onChange={e => setChartForm({...chartForm, name: e.target.value})} className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-[20px] font-bold text-slate-700 outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-400 transition-all" />
                             </div>
-
                             <div className="grid grid-cols-2 gap-6">
                                 <div>
                                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">可视化类型</label>
@@ -317,77 +313,46 @@ export const ChartLabPage: React.FC<ChartLabPageProps> = ({ charts, dataViews, d
                                     </div>
                                 )}
                             </div>
-
-                            {/* [V2-5] Container Configuration */}
+                            
+                            {/* [V2-5] Container Configuration - Keep existing code */}
                             {isContainer && (
                                 <div className="space-y-6 animate-in fade-in slide-in-from-top-2">
                                     <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-2xl">
                                         <label className="block text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-3">容器设置</label>
                                         <div>
                                             <label className="block text-[9px] font-bold text-slate-400 mb-1">轮播间隔 (秒)</label>
-                                            <input 
-                                                type="number" min="2" max="60"
-                                                value={chartForm.container.interval}
-                                                onChange={e => setChartForm({ ...chartForm, container: { ...chartForm.container, interval: parseInt(e.target.value) } })}
-                                                className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-100"
-                                            />
+                                            <input type="number" min="2" max="60" value={chartForm.container.interval} onChange={e => setChartForm({ ...chartForm, container: { ...chartForm.container, interval: parseInt(e.target.value) } })} className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-100" />
                                         </div>
                                     </div>
-
                                     <div>
                                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">选择子图表 (Multi-Select)</label>
                                         <div className="max-h-60 overflow-y-auto custom-scrollbar border border-slate-100 rounded-2xl bg-slate-50 p-2 space-y-2">
                                             {charts.filter(c => c.id !== editingChart?.id && c.type !== 'container').map(c => {
-                                                // Exclude self and other containers to prevent deep nesting issues for now
                                                 const isSelected = chartForm.container.childChartIds.includes(c.id);
                                                 return (
-                                                    <div 
-                                                        key={c.id} 
-                                                        onClick={() => handleToggleChildChart(c.id)}
-                                                        className={`p-3 rounded-xl border cursor-pointer flex justify-between items-center transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-slate-100 text-slate-600 hover:border-indigo-200'}`}
-                                                    >
-                                                        <div>
-                                                            <div className="text-xs font-bold">{c.name}</div>
-                                                            <div className={`text-[9px] uppercase ${isSelected ? 'text-indigo-200' : 'text-slate-400'}`}>{c.type}</div>
-                                                        </div>
+                                                    <div key={c.id} onClick={() => handleToggleChildChart(c.id)} className={`p-3 rounded-xl border cursor-pointer flex justify-between items-center transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-slate-100 text-slate-600 hover:border-indigo-200'}`}>
+                                                        <div><div className="text-xs font-bold">{c.name}</div><div className={`text-[9px] uppercase ${isSelected ? 'text-indigo-200' : 'text-slate-400'}`}>{c.type}</div></div>
                                                         {isSelected && <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
                                                     </div>
                                                 );
                                             })}
-                                            {charts.length === 0 && <div className="text-center text-xs text-slate-400 py-4">无可用图表</div>}
                                         </div>
-                                        <p className="text-[10px] text-slate-400 mt-2 pl-1">* 仅限选择非容器类型的已保存图表</p>
                                     </div>
                                 </div>
                             )}
 
-                            {/* Rich Media Content Editor */}
                             {isRichMedia ? (
                                 <div className="space-y-4">
                                     <div>
-                                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">
-                                            {chartForm.type === 'text' ? '文本内容' : '图片 URL'}
-                                        </label>
+                                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">{chartForm.type === 'text' ? '文本内容' : '图片 URL'}</label>
                                         {chartForm.type === 'text' ? (
-                                            <textarea 
-                                                value={chartForm.content} 
-                                                onChange={e => setChartForm({ ...chartForm, content: e.target.value })} 
-                                                className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-[20px] font-medium text-slate-700 outline-none focus:ring-4 focus:ring-indigo-100 h-32 resize-none"
-                                                placeholder="输入显示文本..."
-                                            />
+                                            <textarea value={chartForm.content} onChange={e => setChartForm({ ...chartForm, content: e.target.value })} className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-[20px] font-medium text-slate-700 outline-none focus:ring-4 focus:ring-indigo-100 h-32 resize-none" placeholder="输入显示文本..." />
                                         ) : (
-                                            <input 
-                                                type="text" 
-                                                value={chartForm.content} 
-                                                onChange={e => setChartForm({ ...chartForm, content: e.target.value })} 
-                                                className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-[20px] font-mono text-sm text-indigo-600 outline-none focus:ring-4 focus:ring-indigo-100"
-                                                placeholder="https://example.com/logo.png"
-                                            />
+                                            <input type="text" value={chartForm.content} onChange={e => setChartForm({ ...chartForm, content: e.target.value })} className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-[20px] font-mono text-sm text-indigo-600 outline-none focus:ring-4 focus:ring-indigo-100" placeholder="https://example.com/logo.png" />
                                         )}
                                     </div>
                                 </div>
                             ) : (
-                                // Standard Chart Data Config (Skip for Container)
                                 (!isContainer && (() => {
                                     const view = dataViews.find(v => v.id === chartForm.viewId);
                                     const standardFields = view ? view.fields : [];
@@ -400,421 +365,187 @@ export const ChartLabPage: React.FC<ChartLabPageProps> = ({ charts, dataViews, d
                                                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">维度 (Dimensions / X-Axis)</label>
                                                 <div className="flex flex-wrap gap-2">
                                                     {allFields.map(f => {
-                                                        const isCalculated = calculatedFields.includes(f);
                                                         const isSelected = chartForm.dimensions.includes(f);
                                                         return (
                                                             <button key={f} onClick={() => {
                                                                 const newDims = isSelected ? chartForm.dimensions.filter(d => d !== f) : [...chartForm.dimensions, f];
                                                                 setChartForm({...chartForm, dimensions: newDims});
                                                             }} className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 ${isSelected ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-500'}`}>
-                                                                {isCalculated && <span className="text-[9px] opacity-70">ƒ(x)</span>}
                                                                 {f}
                                                             </button>
                                                         );
                                                     })}
-                                                    {allFields.length === 0 && <span className="text-xs text-slate-300 italic">请先选择有效的数据视图</span>}
                                                 </div>
                                             </div>
                                             <div>
                                                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">指标 (Metrics / Y-Axis)</label>
                                                 <div className="space-y-2">
                                                     {allFields.map(f => {
-                                                        const isCalculated = calculatedFields.includes(f);
                                                         const isSelected = chartForm.metrics.includes(f);
-                                                        
-                                                        // Only show available aggregation options if selected
-                                                        if (!isSelected) {
-                                                            return (
-                                                                <button key={f} onClick={() => setChartForm({...chartForm, metrics: [...chartForm.metrics, f]})} className="mr-2 mb-2 px-4 py-2 rounded-xl text-xs font-bold border transition-all inline-flex items-center gap-1.5 bg-white border-slate-200 text-slate-500 hover:bg-slate-50">
-                                                                    {isCalculated && <span className="text-[9px] opacity-70">ƒ(x)</span>}
-                                                                    {f}
-                                                                </button>
-                                                            );
-                                                        }
-
-                                                        // Selected metric with Aggregation Dropdown
+                                                        if (!isSelected) return <button key={f} onClick={() => setChartForm({...chartForm, metrics: [...chartForm.metrics, f]})} className="mr-2 mb-2 px-4 py-2 rounded-xl text-xs font-bold border transition-all inline-flex items-center gap-1.5 bg-white border-slate-200 text-slate-500 hover:bg-slate-50">{f}</button>;
                                                         return (
                                                             <div key={f} className="flex items-center justify-between p-2 bg-emerald-50 border border-emerald-100 rounded-xl mb-2">
                                                                 <div className="flex items-center gap-2">
-                                                                    <button onClick={() => setChartForm({...chartForm, metrics: chartForm.metrics.filter(m => m !== f)})} className="text-emerald-300 hover:text-emerald-600">
-                                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
-                                                                    </button>
+                                                                    <button onClick={() => setChartForm({...chartForm, metrics: chartForm.metrics.filter(m => m !== f)})} className="text-emerald-300 hover:text-emerald-600"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg></button>
                                                                     <span className="text-xs font-bold text-emerald-800">{f}</span>
-                                                                    {isCalculated && <span className="text-[9px] text-emerald-600 opacity-70">ƒ(x)</span>}
                                                                 </div>
-                                                                <select 
-                                                                    value={chartForm.aggregations[f] || 'AVG'} 
-                                                                    onChange={(e) => handleAggregationChange(f, e.target.value as AggregationType)}
-                                                                    className="text-[10px] font-black uppercase bg-white border border-emerald-200 text-emerald-600 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-emerald-200 cursor-pointer"
-                                                                >
-                                                                    <option value="AVG">AVG (平均)</option>
-                                                                    <option value="SUM">SUM (总和)</option>
-                                                                    <option value="MAX">MAX (最大)</option>
-                                                                    <option value="MIN">MIN (最小)</option>
-                                                                    <option value="COUNT">COUNT (计数)</option>
-                                                                    <option value="LAST">LAST (最新)</option>
+                                                                <select value={chartForm.aggregations[f] || 'AVG'} onChange={(e) => handleAggregationChange(f, e.target.value as AggregationType)} className="text-[10px] font-black uppercase bg-white border border-emerald-200 text-emerald-600 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-emerald-200 cursor-pointer">
+                                                                    <option value="AVG">AVG</option><option value="SUM">SUM</option><option value="MAX">MAX</option><option value="MIN">MIN</option><option value="COUNT">COUNT</option><option value="LAST">LAST</option>
                                                                 </select>
                                                             </div>
                                                         );
                                                     })}
-                                                    {allFields.length === 0 && <span className="text-xs text-slate-300 italic">请先选择有效的数据视图</span>}
                                                 </div>
                                             </div>
                                         </div>
                                     );
                                 })())
                             )}
-
-                            {/* [V2-8] Time-Series Analysis (Line/Area Only) */}
-                            {!isRichMedia && !isContainer && (['line', 'area'].includes(chartForm.type)) && (
-                                <div className="pt-4 border-t border-slate-50 animate-in fade-in slide-in-from-top-2">
-                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">高级分析 (Advanced Analysis)</label>
-                                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-4">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-xs font-bold text-slate-600">启用趋势平滑 (Moving Average)</span>
-                                            <button 
-                                                onClick={() => setChartForm({ ...chartForm, analysis: { ...chartForm.analysis, enableMovingAverage: !chartForm.analysis.enableMovingAverage } })}
-                                                className={`w-10 h-5 rounded-full p-0.5 transition-colors ${chartForm.analysis.enableMovingAverage ? 'bg-indigo-500' : 'bg-slate-300'}`}
-                                            >
-                                                <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${chartForm.analysis.enableMovingAverage ? 'translate-x-5' : 'translate-x-0'}`}></div>
-                                            </button>
-                                        </div>
-                                        
-                                        {chartForm.analysis.enableMovingAverage && (
-                                            <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-1">
-                                                <div>
-                                                    <label className="block text-[9px] font-bold text-slate-400 mb-1">窗口大小 (Points)</label>
-                                                    <input 
-                                                        type="number" min="2" max="50"
-                                                        value={chartForm.analysis.movingAverageWindow}
-                                                        onChange={e => setChartForm({ ...chartForm, analysis: { ...chartForm.analysis, movingAverageWindow: parseInt(e.target.value) } })}
-                                                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none"
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-[9px] font-bold text-slate-400 mb-1">趋势线颜色</label>
-                                                    <div className="flex gap-2">
-                                                        <input 
-                                                            type="color" 
-                                                            value={chartForm.analysis.trendLineColor}
-                                                            onChange={e => setChartForm({ ...chartForm, analysis: { ...chartForm.analysis, trendLineColor: e.target.value } })}
-                                                            className="h-8 w-8 p-0 border-none rounded cursor-pointer"
-                                                        />
-                                                        <input 
-                                                            type="text" 
-                                                            value={chartForm.analysis.trendLineColor}
-                                                            onChange={e => setChartForm({ ...chartForm, analysis: { ...chartForm.analysis, trendLineColor: e.target.value } })}
-                                                            className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono outline-none"
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* [V2-1] Value Formatting Config (Only for data charts) */}
-                            {!isRichMedia && !isContainer && (
-                                <div className="pt-4 border-t border-slate-50 animate-in fade-in slide-in-from-top-2">
-                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">数值格式化 (Value Format)</label>
-                                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-4">
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-[9px] font-bold text-slate-400 mb-1">格式类型</label>
-                                                <select 
-                                                    value={chartForm.format.type}
-                                                    onChange={e => setChartForm({ ...chartForm, format: { ...chartForm.format, type: e.target.value as any } })}
-                                                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none"
-                                                >
-                                                    <option value="number">数字 (Number)</option>
-                                                    <option value="percent">百分比 (Percentage)</option>
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label className="block text-[9px] font-bold text-slate-400 mb-1">小数位数</label>
-                                                <input 
-                                                    type="number" min="0" max="5" 
-                                                    value={chartForm.format.precision}
-                                                    onChange={e => setChartForm({ ...chartForm, format: { ...chartForm.format, precision: parseInt(e.target.value) } })}
-                                                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none"
-                                                />
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label className="block text-[9px] font-bold text-slate-400 mb-1">单位后缀 (Suffix)</label>
-                                            <input 
-                                                type="text"
-                                                value={chartForm.format.unitSuffix || ''}
-                                                onChange={e => setChartForm({ ...chartForm, format: { ...chartForm.format, unitSuffix: e.target.value } })}
-                                                placeholder="e.g. °C, kW, rpm"
-                                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
                         </div>
                     )}
 
-                    {/* --- STYLE TAB CONTENT --- */}
+                    {/* --- STYLE TAB --- */}
                     {activeTab === 'style' && (
                         <div className="space-y-8 animate-in slide-in-from-right-4 duration-300">
-                             {/* 1. Color Palette (Data Charts Only) */}
-                             {!isRichMedia && !isContainer && (
-                                 <div>
-                                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">色彩主题 (Color Palette)</label>
-                                     <div className="grid grid-cols-2 gap-3">
-                                         {COLOR_PALETTES.map((palette) => (
-                                             <button 
-                                                key={palette.name}
-                                                onClick={() => setChartForm({ ...chartForm, style: { ...chartForm.style, colors: palette.colors } })}
-                                                className={`p-3 rounded-2xl border transition-all text-left group ${JSON.stringify(chartForm.style.colors) === JSON.stringify(palette.colors) ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-100' : 'border-slate-100 hover:border-indigo-200 bg-white'}`}
-                                             >
-                                                 <div className="text-[10px] font-bold text-slate-600 mb-2">{palette.name}</div>
-                                                 <div className="flex gap-1">
-                                                     {palette.colors.map(c => (
-                                                         <div key={c} className="w-4 h-4 rounded-full" style={{ backgroundColor: c }}></div>
-                                                     ))}
-                                                 </div>
-                                             </button>
-                                         ))}
-                                     </div>
-                                 </div>
-                             )}
-
-                             {/* [V2-6] Rich Media & Container Styles */}
-                             {(isRichMedia || isContainer) && (
-                                 <div className="space-y-4">
-                                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">外观设置</label>
-                                     <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-4">
-                                         <div>
-                                             <label className="block text-[9px] font-bold text-slate-400 mb-1">背景颜色</label>
-                                             <div className="flex gap-2">
-                                                 <input type="color" value={chartForm.style.background === 'transparent' ? '#ffffff' : chartForm.style.background} onChange={e => setChartForm({...chartForm, style: {...chartForm.style, background: e.target.value}})} className="h-8 w-10 p-0 border-none rounded cursor-pointer" />
-                                                 <button onClick={() => setChartForm({...chartForm, style: {...chartForm.style, background: 'transparent'}})} className="text-xs bg-white border px-2 rounded">Transparent</button>
-                                             </div>
-                                         </div>
-                                         {chartForm.type === 'text' && (
-                                             <>
-                                                 <div className="grid grid-cols-2 gap-4">
-                                                     <div>
-                                                         <label className="block text-[9px] font-bold text-slate-400 mb-1">字体大小</label>
-                                                         <input type="number" value={chartForm.style.fontSize} onChange={e => setChartForm({...chartForm, style: {...chartForm.style, fontSize: parseInt(e.target.value)}})} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none" />
-                                                     </div>
-                                                     <div>
-                                                         <label className="block text-[9px] font-bold text-slate-400 mb-1">对齐方式</label>
-                                                         <select value={chartForm.style.textAlign} onChange={e => setChartForm({...chartForm, style: {...chartForm.style, textAlign: e.target.value as any}})} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none">
-                                                             <option value="left">Left</option>
-                                                             <option value="center">Center</option>
-                                                             <option value="right">Right</option>
-                                                         </select>
-                                                     </div>
-                                                 </div>
-                                             </>
-                                         )}
-                                     </div>
-                                 </div>
-                             )}
-
-                             {/* [V2-2] Thresholds Config (Data Only) */}
-                             {!isRichMedia && !isContainer && (
-                                 <div className="space-y-4 pt-4 border-t border-slate-50 animate-in fade-in slide-in-from-top-2">
-                                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">阈值告警规则 (Thresholds)</label>
-                                     
-                                     <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3">
-                                         <div className="flex gap-2 items-center">
-                                             <select 
-                                                value={newThreshold.operator}
-                                                onChange={e => setNewThreshold({ ...newThreshold, operator: e.target.value as ThresholdOperator })}
-                                                className="px-2 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold w-16"
-                                             >
-                                                 <option value=">">&gt;</option>
-                                                 <option value=">=">&ge;</option>
-                                                 <option value="<">&lt;</option>
-                                                 <option value="<=">&le;</option>
-                                                 <option value="==">=</option>
-                                             </select>
-                                             <input 
-                                                type="number" 
-                                                value={newThreshold.value}
-                                                onChange={e => setNewThreshold({ ...newThreshold, value: parseFloat(e.target.value) })}
-                                                className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold w-20 outline-none"
-                                             />
-                                             <input 
-                                                type="color" 
-                                                value={newThreshold.color}
-                                                onChange={e => setNewThreshold({ ...newThreshold, color: e.target.value })}
-                                                className="w-8 h-8 rounded border-none bg-transparent cursor-pointer"
-                                             />
-                                             <button 
-                                                onClick={handleAddThreshold}
-                                                className="flex-1 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold"
-                                             >
-                                                 Add Rule
-                                             </button>
-                                         </div>
-
-                                         <div className="space-y-2 mt-2">
-                                             {chartForm.style.thresholds?.map((rule, idx) => (
-                                                 <div key={rule.id || idx} className="flex items-center justify-between p-2 bg-white border border-slate-100 rounded-lg">
-                                                     <div className="flex items-center gap-2 text-xs font-mono">
-                                                         <span className="font-bold text-slate-500">Value</span>
-                                                         <span className="px-1.5 py-0.5 bg-slate-100 rounded text-indigo-600 font-black">{rule.operator}</span>
-                                                         <span className="font-bold">{rule.value}</span>
-                                                         <div className="w-4 h-4 rounded-full border border-slate-100" style={{ backgroundColor: rule.color }}></div>
-                                                     </div>
-                                                     <button onClick={() => handleRemoveThreshold(idx)} className="text-slate-400 hover:text-rose-500">
-                                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
-                                                     </button>
-                                                 </div>
-                                             ))}
-                                         </div>
-                                     </div>
-                                 </div>
-                             )}
-
-                             {/* [V2-3] Reference Lines Config (Line/Bar Only) */}
-                             {['line', 'bar', 'area'].includes(chartForm.type) && (
+                             {/* ... existing styles ... */}
+                             <div className="space-y-4">
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">卡片样式</label>
+                                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-4">
+                                    <div><label className="block text-[9px] font-bold text-slate-400 mb-1">背景颜色</label><div className="flex gap-2"><input type="color" value={chartForm.style.background || '#ffffff'} onChange={e => setChartForm({...chartForm, style: {...chartForm.style, background: e.target.value}})} className="h-8 w-10 p-0 border-none rounded cursor-pointer" /><button onClick={() => setChartForm({...chartForm, style: {...chartForm.style, background: undefined}})} className="text-xs bg-white border px-2 rounded h-8 text-slate-500 hover:bg-slate-50">Default</button></div></div>
+                                    <div><label className="block text-[9px] font-bold text-slate-400 mb-1">文字颜色</label><div className="flex gap-2"><input type="color" value={chartForm.style.textColor || '#1e293b'} onChange={e => setChartForm({...chartForm, style: {...chartForm.style, textColor: e.target.value}})} className="h-8 w-10 p-0 border-none rounded cursor-pointer" /><button onClick={() => setChartForm({...chartForm, style: {...chartForm.style, textColor: undefined}})} className="text-xs bg-white border px-2 rounded h-8 text-slate-500 hover:bg-slate-50">Default</button></div></div>
+                                </div>
+                             </div>
+                             {chartForm.type === 'table' && (
                                 <div className="space-y-4 pt-4 border-t border-slate-50 animate-in fade-in slide-in-from-top-2">
-                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">参考线 (Reference Lines)</label>
-                                    
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">表格配置</label>
                                     <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3">
-                                        <div className="flex gap-2 items-center">
-                                            <input 
-                                                type="text" 
-                                                placeholder="Name (e.g. Limit)"
-                                                value={newRefLine.name}
-                                                onChange={e => setNewRefLine({ ...newRefLine, name: e.target.value })}
-                                                className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold w-24 outline-none"
-                                            />
-                                            <select 
-                                                value={newRefLine.type}
-                                                onChange={e => setNewRefLine({ ...newRefLine, type: e.target.value as any })}
-                                                className="px-2 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold w-20"
-                                            >
-                                                <option value="constant">Fixed</option>
-                                                <option value="average">Avg</option>
-                                                <option value="max">Max</option>
-                                                <option value="min">Min</option>
-                                            </select>
-                                            {newRefLine.type === 'constant' && (
-                                                <input 
-                                                    type="number" 
-                                                    value={newRefLine.value}
-                                                    onChange={e => setNewRefLine({ ...newRefLine, value: parseFloat(e.target.value) })}
-                                                    className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold w-16 outline-none"
-                                                />
-                                            )}
-                                            <input 
-                                                type="color" 
-                                                value={newRefLine.color}
-                                                onChange={e => setNewRefLine({ ...newRefLine, color: e.target.value })}
-                                                className="w-8 h-8 rounded border-none bg-transparent cursor-pointer"
-                                            />
-                                            <button 
-                                                onClick={handleAddRefLine}
-                                                className="p-2 bg-indigo-600 text-white rounded-lg"
-                                            >
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4"/></svg>
-                                            </button>
+                                        <div className="flex gap-2 items-center flex-wrap">
+                                            <input type="text" placeholder="ID" value={newAction.id} onChange={e => setNewAction({ ...newAction, id: e.target.value })} className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold w-24 outline-none flex-grow" />
+                                            <input type="text" placeholder="Label" value={newAction.label} onChange={e => setNewAction({ ...newAction, label: e.target.value })} className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold w-20 outline-none" />
+                                            <select value={newAction.type} onChange={e => setNewAction({ ...newAction, type: e.target.value as any })} className="px-2 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold w-20"><option value="default">Default</option><option value="primary">Primary</option><option value="danger">Danger</option></select>
+                                            <button onClick={handleAddAction} className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4"/></svg></button>
                                         </div>
-
                                         <div className="space-y-2 mt-2">
-                                            {chartForm.style.referenceLines?.map((line, idx) => (
-                                                <div key={line.id || idx} className="flex items-center justify-between p-2 bg-white border border-slate-100 rounded-lg">
-                                                    <div className="flex items-center gap-2 text-xs">
-                                                        <span className="font-bold text-slate-600">{line.name}</span>
-                                                        <span className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-500 font-mono text-[9px] uppercase">{line.type}</span>
-                                                        {line.type === 'constant' && <span className="font-mono">{line.value}</span>}
-                                                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: line.color }}></div>
-                                                    </div>
-                                                    <button onClick={() => handleRemoveRefLine(idx)} className="text-slate-400 hover:text-rose-500">
-                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
-                                                    </button>
+                                            {chartForm.style.rowActions?.map((action, idx) => (
+                                                <div key={idx} className="flex items-center justify-between p-2 bg-white border border-slate-100 rounded-lg">
+                                                    <div className="flex items-center gap-2 text-xs"><span className="font-mono text-slate-400">{action.id}</span><span className={`px-2 py-0.5 rounded font-bold ${action.type === 'primary' ? 'bg-indigo-50 text-indigo-600' : action.type === 'danger' ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-500'}`}>{action.label}</span></div>
+                                                    <button onClick={() => handleRemoveAction(idx)} className="text-slate-400 hover:text-rose-500"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg></button>
                                                 </div>
                                             ))}
                                         </div>
                                     </div>
                                 </div>
                              )}
+                        </div>
+                    )}
 
-                             {/* 2. Visual Toggles */}
-                             {!isRichMedia && !isContainer && (
-                                 <div className="space-y-4 pt-4 border-t border-slate-50">
-                                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">显示组件</label>
-                                     
-                                     <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
-                                         <span className="text-xs font-bold text-slate-600">显示网格线 (Grid)</span>
-                                         <button 
-                                            onClick={() => setChartForm({ ...chartForm, style: { ...chartForm.style, showGrid: !chartForm.style.showGrid } })}
-                                            className={`w-10 h-5 rounded-full p-0.5 transition-colors ${chartForm.style.showGrid ? 'bg-emerald-500' : 'bg-slate-300'}`}
-                                         >
-                                             <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${chartForm.style.showGrid ? 'translate-x-5' : 'translate-x-0'}`}></div>
-                                         </button>
-                                     </div>
+                    {/* --- INTERACTION TAB [V3.2] --- */}
+                    {activeTab === 'interaction' && (
+                        <div className="space-y-8 animate-in slide-in-from-right-4 duration-300">
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">点击交互行为</label>
+                                <div className="grid grid-cols-2 gap-4">
+                                    {['none', 'navigate_dashboard', 'open_modal', 'external_link'].map(type => (
+                                        <button
+                                            key={type}
+                                            onClick={() => setChartForm({ ...chartForm, interaction: { ...chartForm.interaction, type: type as any } })}
+                                            className={`p-3 rounded-xl border text-xs font-bold uppercase transition-all ${chartForm.interaction.type === type ? 'bg-purple-50 border-purple-500 text-purple-700' : 'bg-white border-slate-200 text-slate-500 hover:border-purple-300'}`}
+                                        >
+                                            {type.replace('_', ' ')}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
 
-                                     <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
-                                         <span className="text-xs font-bold text-slate-600">显示图例 (Legend)</span>
-                                         <button 
-                                            onClick={() => setChartForm({ ...chartForm, style: { ...chartForm.style, showLegend: !chartForm.style.showLegend } })}
-                                            className={`w-10 h-5 rounded-full p-0.5 transition-colors ${chartForm.style.showLegend ? 'bg-emerald-500' : 'bg-slate-300'}`}
-                                         >
-                                             <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${chartForm.style.showLegend ? 'translate-x-5' : 'translate-x-0'}`}></div>
-                                         </button>
-                                     </div>
-
-                                     {/* Legend Position - dependent on showLegend */}
-                                     {chartForm.style.showLegend && (
-                                        <div className="ml-4 pl-4 border-l-2 border-slate-100 animate-in fade-in slide-in-from-top-1">
-                                            <label className="block text-[9px] font-bold text-slate-400 mb-2">图例位置</label>
-                                            <div className="flex gap-2">
-                                                {['top', 'bottom'].map((pos) => (
-                                                    <button 
-                                                        key={pos}
-                                                        onClick={() => setChartForm({ ...chartForm, style: { ...chartForm.style, legendPosition: pos as 'top' | 'bottom' } })}
-                                                        className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase border transition-all flex items-center gap-1 ${chartForm.style.legendPosition === pos ? 'bg-indigo-50 border-indigo-500 text-indigo-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
-                                                    >
-                                                        {pos === 'top' ? (
-                                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 10h14M5 14h14M5 6h14" /></svg>
-                                                        ) : (
-                                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 10h14M5 6h14M5 18h14" /></svg>
-                                                        )}
-                                                        {pos}
-                                                    </button>
-                                                ))}
+                            {chartForm.interaction.type !== 'none' && (
+                                <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 space-y-6 animate-in fade-in slide-in-from-top-2">
+                                    {/* Target Config */}
+                                    {chartForm.interaction.type === 'navigate_dashboard' || chartForm.interaction.type === 'open_modal' ? (
+                                        <div>
+                                            <label className="block text-[9px] font-bold text-slate-400 mb-2">目标看板 (Target Dashboard)</label>
+                                            <div className="relative">
+                                                <select
+                                                    value={chartForm.interaction.targetId || ''}
+                                                    onChange={e => setChartForm({ ...chartForm, interaction: { ...chartForm.interaction, targetId: e.target.value } })}
+                                                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none appearance-none"
+                                                >
+                                                    <option value="">-- Select Dashboard --</option>
+                                                    {dashboards.filter(d => d.id !== editingChart?.id).map(d => ( // Prevent self-reference loops mostly
+                                                        <option key={d.id} value={d.id}>{d.name}</option>
+                                                    ))}
+                                                </select>
+                                                <svg className="w-4 h-4 text-slate-400 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" /></svg>
                                             </div>
                                         </div>
-                                     )}
-                                 </div>
-                             )}
+                                    ) : (
+                                        <div>
+                                            <label className="block text-[9px] font-bold text-slate-400 mb-2">外部链接 (URL Template)</label>
+                                            <input 
+                                                type="text" 
+                                                value={chartForm.interaction.url || ''} 
+                                                onChange={e => setChartForm({ ...chartForm, interaction: { ...chartForm.interaction, url: e.target.value } })} 
+                                                className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-mono text-indigo-600 outline-none"
+                                                placeholder="https://example.com/details?id={value}"
+                                            />
+                                            <p className="text-[9px] text-slate-400 mt-1">Available vars: {'{name}, {value}, {series}'}</p>
+                                        </div>
+                                    )}
 
-                             {/* 3. Axis Config */}
-                             {!isRichMedia && !isContainer && (
-                                 <div className="space-y-4 pt-4 border-t border-slate-50">
-                                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">坐标轴 (Axes)</label>
-                                     
-                                     <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
-                                         <span className="text-xs font-bold text-slate-600">显示 X 轴标签</span>
-                                         <button 
-                                            onClick={() => setChartForm({ ...chartForm, style: { ...chartForm.style, xAxisLabel: !chartForm.style.xAxisLabel } })}
-                                            className={`w-10 h-5 rounded-full p-0.5 transition-colors ${chartForm.style.xAxisLabel ? 'bg-indigo-500' : 'bg-slate-300'}`}
-                                         >
-                                             <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${chartForm.style.xAxisLabel ? 'translate-x-5' : 'translate-x-0'}`}></div>
-                                         </button>
-                                     </div>
-                                     
-                                     <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
-                                         <span className="text-xs font-bold text-slate-600">显示 Y 轴标签</span>
-                                         <button 
-                                            onClick={() => setChartForm({ ...chartForm, style: { ...chartForm.style, yAxisLabel: !chartForm.style.yAxisLabel } })}
-                                            className={`w-10 h-5 rounded-full p-0.5 transition-colors ${chartForm.style.yAxisLabel ? 'bg-indigo-500' : 'bg-slate-300'}`}
-                                         >
-                                             <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${chartForm.style.yAxisLabel ? 'translate-x-5' : 'translate-x-0'}`}></div>
-                                         </button>
-                                     </div>
-                                 </div>
-                             )}
+                                    {/* Param Mapping */}
+                                    <div className="pt-4 border-t border-slate-200">
+                                        <label className="block text-[9px] font-bold text-slate-400 mb-2">参数传递映射 (Parameter Mapping)</label>
+                                        
+                                        {/* Add New Param */}
+                                        <div className="flex gap-2 items-center mb-3">
+                                            <select 
+                                                value={newParam.sourceKey} 
+                                                onChange={e => setNewParam({ ...newParam, sourceKey: e.target.value as any })}
+                                                className="px-2 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold w-24"
+                                            >
+                                                <option value="name">Name (X)</option>
+                                                <option value="value">Value (Y)</option>
+                                                <option value="series">Series</option>
+                                                <option value="row_field">Row Field</option>
+                                            </select>
+                                            {newParam.sourceKey === 'row_field' && (
+                                                <input 
+                                                    type="text" 
+                                                    placeholder="Field Name" 
+                                                    value={newParam.sourceField || ''} 
+                                                    onChange={e => setNewParam({ ...newParam, sourceField: e.target.value })}
+                                                    className="px-2 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold w-24 outline-none"
+                                                />
+                                            )}
+                                            <span className="text-slate-400">→</span>
+                                            <input 
+                                                type="text" 
+                                                placeholder="Target Key" 
+                                                value={newParam.targetKey} 
+                                                onChange={e => setNewParam({ ...newParam, targetKey: e.target.value })}
+                                                className="flex-1 px-2 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none"
+                                            />
+                                            <button onClick={handleAddParam} className="p-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4"/></svg></button>
+                                        </div>
+
+                                        {/* List */}
+                                        <div className="space-y-2">
+                                            {chartForm.interaction.params?.map(p => (
+                                                <div key={p.id} className="flex items-center justify-between p-2 bg-white border border-slate-100 rounded-lg text-xs">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-slate-500">{p.sourceKey === 'row_field' ? p.sourceField : p.sourceKey}</span>
+                                                        <span className="text-slate-300">→</span>
+                                                        <span className="font-bold text-purple-700">{p.targetKey}</span>
+                                                    </div>
+                                                    <button onClick={() => handleRemoveParam(p.id)} className="text-slate-400 hover:text-rose-500"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                                                </div>
+                                            ))}
+                                            {(!chartForm.interaction.params || chartForm.interaction.params.length === 0) && (
+                                                <p className="text-[10px] text-slate-400 italic text-center">No parameters mapped.</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -829,7 +560,6 @@ export const ChartLabPage: React.FC<ChartLabPageProps> = ({ charts, dataViews, d
                     </div>
                     
                     <div className="flex-1 bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden relative p-4">
-                        {/* Mock Chart Config for Preview */}
                          <RenderChart 
                             chart={{
                                 id: 'preview',
@@ -841,24 +571,16 @@ export const ChartLabPage: React.FC<ChartLabPageProps> = ({ charts, dataViews, d
                                 aggregations: chartForm.aggregations, 
                                 style: chartForm.style,
                                 format: chartForm.format,
-                                content: chartForm.content, // V2-6
-                                analysis: chartForm.analysis, // V2-8
-                                container: chartForm.container // V2-5
+                                content: chartForm.content,
+                                analysis: chartForm.analysis,
+                                container: chartForm.container,
+                                interaction: chartForm.interaction
                             }} 
                             devices={devices} 
                             dataView={dataViews.find(v => v.id === chartForm.viewId)} 
-                            dataViews={dataViews} // FIX: Pass dataViews for container preview
-                            allCharts={charts} // Pass all charts for container preview recursion
+                            dataViews={dataViews} 
+                            allCharts={charts} 
                         />
-                        
-                        {!isRichMedia && !isContainer && chartForm.metrics.length === 0 && (
-                            <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center z-20">
-                                <div className="text-center">
-                                    <p className="text-sm font-bold text-slate-400">请选择至少一个指标</p>
-                                    <p className="text-[10px] text-slate-300">Select at least one metric to preview</p>
-                                </div>
-                            </div>
-                        )}
                     </div>
                 </div>
             </div>

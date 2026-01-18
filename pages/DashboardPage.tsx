@@ -1,11 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
-import { Dashboard, ChartConfig, Device, ChartStyle, DataView, ControllerConfig, GridLayoutItem } from '../types';
+import { Dashboard, ChartConfig, Device, ChartStyle, DataView, ControllerConfig, GridLayoutItem, ShareToken } from '../types';
 import { RenderChart } from '../components/RenderChart';
 import { ControllerBar } from '../components/ControllerBar';
 import { Responsive } from 'react-grid-layout';
 import * as RGL from 'react-grid-layout';
 import _ from 'lodash';
+import { MOCK_SHARE_TOKENS } from '../mockData'; // Mock Data for initial state
 
 // Workaround for potential type definition mismatch for WidthProvider
 const WidthProvider = (RGL as any).WidthProvider;
@@ -28,7 +29,7 @@ const CYCLE_OPTIONS = [
     { label: '5 分钟', value: 300000 },
 ];
 
-// --- Controller Modal (No changes here, minimized for brevity) ---
+// --- Controller Modal (Minimized for brevity) ---
 const ControllerEditorModal: React.FC<{
     dashboard: Dashboard;
     onSave: (updatedControllers: ControllerConfig[]) => void;
@@ -61,6 +62,204 @@ const ControllerEditorModal: React.FC<{
                     <button onClick={handleAdd} className="w-full py-3 border-2 border-dashed border-indigo-200 rounded-2xl text-indigo-400 font-bold text-xs">Add Controller</button>
                 </div>
                 <div className="p-6 bg-slate-50 flex justify-end gap-4"><button onClick={onClose} className="px-6 py-2 bg-white rounded-xl text-xs font-bold">Cancel</button><button onClick={() => onSave(controllers)} className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold">Save</button></div>
+            </div>
+        </div>
+    );
+};
+
+// --- [V3.6] Advanced Share Modal ---
+const AdvancedShareModal: React.FC<{
+    dashboard: Dashboard;
+    onClose: () => void;
+}> = ({ dashboard, onClose }) => {
+    // In a real app, this would come from an API. Here we use local state + mock data.
+    const [tokens, setTokens] = useState<ShareToken[]>(
+        MOCK_SHARE_TOKENS.filter(t => t.dashboardId === dashboard.id)
+    );
+    const [activeTab, setActiveTab] = useState<'create' | 'manage'>('create');
+    
+    // Form State
+    const [formLabel, setFormLabel] = useState('');
+    const [expiryDays, setExpiryDays] = useState<number | 'never'>(7);
+    const [password, setPassword] = useState('');
+    const [usePassword, setUsePassword] = useState(false);
+    const [generatedToken, setGeneratedToken] = useState<string | null>(null);
+
+    const handleCreate = () => {
+        const newToken: ShareToken = {
+            id: `token-${Math.random().toString(36).substr(2, 9)}`,
+            dashboardId: dashboard.id,
+            label: formLabel || 'Untitled Share Link',
+            createdAt: new Date().toISOString(),
+            status: 'active',
+            password: usePassword ? password : undefined,
+            expiresAt: expiryDays === 'never' 
+                ? undefined 
+                : new Date(Date.now() + (expiryDays as number) * 86400000).toISOString()
+        };
+
+        setTokens([newToken, ...tokens]);
+        setGeneratedToken(newToken.id);
+        // Reset form partially
+        setFormLabel('');
+        setPassword('');
+    };
+
+    const handleRevoke = (id: string) => {
+        if(window.confirm('Are you sure you want to revoke this link? Users will lose access immediately.')) {
+            setTokens(prev => prev.map(t => t.id === id ? { ...t, status: 'revoked' } : t));
+        }
+    };
+
+    const getShareUrl = (tokenId: string) => `https://aurasense.io/share/${tokenId}`;
+
+    const copyToClipboard = (text: string) => {
+        navigator.clipboard.writeText(text);
+        alert('Copied to clipboard!');
+    };
+
+    return (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-md animate-in fade-in">
+            <div className="bg-white rounded-[32px] w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] shadow-2xl">
+                {/* Header */}
+                <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                    <div>
+                        <h3 className="text-xl font-black text-slate-800">分享看板: {dashboard.name}</h3>
+                        <p className="text-[10px] text-indigo-500 font-bold uppercase tracking-widest mt-1">Secure Sharing Management</p>
+                    </div>
+                    <button onClick={onClose} className="p-2 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-rose-500 transition-colors">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+
+                {/* Tabs */}
+                <div className="flex border-b border-slate-100 px-8">
+                    <button 
+                        onClick={() => setActiveTab('create')}
+                        className={`py-4 px-4 text-xs font-bold border-b-2 transition-all ${activeTab === 'create' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                    >
+                        创建新链接
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('manage')}
+                        className={`py-4 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${activeTab === 'manage' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                    >
+                        管理已分享
+                        <span className="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md text-[9px]">{tokens.length}</span>
+                    </button>
+                </div>
+
+                {/* Content */}
+                <div className="p-8 flex-1 overflow-y-auto custom-scrollbar">
+                    {activeTab === 'create' && (
+                        <div className="space-y-6 animate-in slide-in-from-left-4">
+                            {generatedToken ? (
+                                <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-6 text-center space-y-4">
+                                    <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+                                    </div>
+                                    <div>
+                                        <h4 className="font-bold text-emerald-800">Link Generated Successfully!</h4>
+                                        <p className="text-xs text-emerald-600 mt-1">This link is now active and ready to share.</p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <input readOnly value={getShareUrl(generatedToken)} className="flex-1 bg-white border border-emerald-200 rounded-xl px-4 py-3 text-xs font-mono text-emerald-700 outline-none" />
+                                        <button onClick={() => copyToClipboard(getShareUrl(generatedToken))} className="px-4 py-3 bg-emerald-600 text-white rounded-xl font-bold text-xs hover:bg-emerald-700 shadow-lg shadow-emerald-200">Copy</button>
+                                    </div>
+                                    <button onClick={() => setGeneratedToken(null)} className="text-xs text-emerald-600 font-bold hover:underline">Create Another</button>
+                                </div>
+                            ) : (
+                                <>
+                                    <div>
+                                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">链接描述 / 用途</label>
+                                        <input type="text" value={formLabel} onChange={e => setFormLabel(e.target.value)} placeholder="e.g. For Client Review Q3" className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-100" />
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-2 gap-6">
+                                        <div>
+                                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">有效期</label>
+                                            <select value={expiryDays} onChange={e => setExpiryDays(e.target.value === 'never' ? 'never' : parseInt(e.target.value))} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm outline-none">
+                                                <option value={1}>1 Day</option>
+                                                <option value={7}>7 Days</option>
+                                                <option value={30}>30 Days</option>
+                                                <option value="never">Permanent (Never Expire)</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">访问密码 (可选)</label>
+                                            <div className="flex items-center gap-3 h-[46px]">
+                                                <input type="checkbox" checked={usePassword} onChange={e => setUsePassword(e.target.checked)} className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                                                <input 
+                                                    type="text" 
+                                                    disabled={!usePassword} 
+                                                    value={password} 
+                                                    onChange={e => setPassword(e.target.value)} 
+                                                    placeholder="Set Access Code" 
+                                                    className={`flex-1 px-4 py-3 border border-slate-100 rounded-xl font-mono text-sm outline-none transition-all ${usePassword ? 'bg-white focus:ring-2 focus:ring-indigo-100' : 'bg-slate-50 text-slate-400'}`} 
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="p-4 bg-indigo-50 rounded-xl border border-indigo-100 flex gap-3 items-start">
+                                        <svg className="w-5 h-5 text-indigo-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                        <p className="text-xs text-indigo-800 leading-relaxed">
+                                            Anyone with this link will have <strong>Read-Only</strong> access to this dashboard. 
+                                            They cannot edit charts or see other system pages.
+                                        </p>
+                                    </div>
+
+                                    <button 
+                                        onClick={handleCreate}
+                                        disabled={!formLabel}
+                                        className={`w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg ${!formLabel ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'}`}
+                                    >
+                                        Generate Secure Link
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    {activeTab === 'manage' && (
+                        <div className="space-y-4 animate-in slide-in-from-right-4">
+                            {tokens.length === 0 ? (
+                                <div className="text-center py-12 border-2 border-dashed border-slate-100 rounded-2xl">
+                                    <p className="text-slate-400 font-bold text-sm">No active share links.</p>
+                                </div>
+                            ) : (
+                                tokens.map(token => (
+                                    <div key={token.id} className={`p-4 rounded-2xl border transition-all ${token.status === 'active' ? 'bg-white border-slate-100 shadow-sm' : 'bg-slate-50 border-slate-100 opacity-60'}`}>
+                                        <div className="flex justify-between items-start mb-3">
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h4 className={`font-bold text-sm ${token.status === 'active' ? 'text-slate-800' : 'text-slate-500 line-through'}`}>{token.label}</h4>
+                                                    <span className={`text-[9px] px-2 py-0.5 rounded font-black uppercase ${token.status === 'active' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-200 text-slate-500'}`}>{token.status}</span>
+                                                </div>
+                                                <p className="text-[10px] text-slate-400 mt-1 font-mono">Created: {new Date(token.createdAt).toLocaleDateString()}</p>
+                                            </div>
+                                            {token.status === 'active' && (
+                                                <button onClick={() => handleRevoke(token.id)} className="text-[10px] font-bold text-rose-500 hover:bg-rose-50 px-2 py-1 rounded transition-colors">Revoke</button>
+                                            )}
+                                        </div>
+                                        
+                                        <div className="flex items-center gap-4 text-xs text-slate-500 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                            <div className="flex items-center gap-1">
+                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                                <span>{token.password ? 'Password Protected' : 'No Password'}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                                <span>{token.expiresAt ? `Expires: ${new Date(token.expiresAt).toLocaleDateString()}` : 'Never Expires'}</span>
+                                            </div>
+                                            <button onClick={() => copyToClipboard(getShareUrl(token.id))} className="ml-auto text-indigo-600 font-bold hover:underline">Copy Link</button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );
@@ -316,7 +515,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ dashboards, charts
                               </>
                           ) : (
                               <>
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
                                 自定义布局
                               </>
                           )}
@@ -336,6 +535,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ dashboards, charts
                       >
                           <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                           大屏
+                      </button>
+
+                      {/* Updated Share Button (Advanced) */}
+                      <button
+                          onClick={() => setSharingDashboard(dash)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-500 rounded-lg text-[10px] font-bold uppercase tracking-wider hover:text-indigo-600 hover:border-indigo-300 transition-all ml-2"
+                      >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                          分享
                       </button>
 
                       {isEditing && (
@@ -422,6 +630,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ dashboards, charts
               dashboard={dashboards.find(d => d.id === controllerConfigDashId)!}
               onSave={(controllers) => handleSaveControllers(controllerConfigDashId, controllers)}
               onClose={() => setControllerConfigDashId(null)}
+          />
+      )}
+
+      {/* Advanced Share Modal (Replaced) */}
+      {sharingDashboard && (
+          <AdvancedShareModal 
+              dashboard={sharingDashboard}
+              onClose={() => setSharingDashboard(null)}
           />
       )}
 

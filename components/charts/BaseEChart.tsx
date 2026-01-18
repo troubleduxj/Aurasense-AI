@@ -54,7 +54,13 @@ export const BaseEChart: React.FC<BaseEChartProps> = ({ options, theme = 'light'
     
     // Use ResizeObserver for container resize detection
     const resizeObserver = new ResizeObserver(() => {
-        chartInstance.current?.resize();
+        // Wrap in requestAnimationFrame to prevent "ResizeObserver loop completed with undelivered notifications"
+        // This defers the resize operation to the next animation frame
+        if (chartInstance.current) {
+            requestAnimationFrame(() => {
+                chartInstance.current?.resize();
+            });
+        }
     });
     
     if (chartRef.current) {

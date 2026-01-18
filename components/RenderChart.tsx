@@ -3,6 +3,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import * as echarts from 'echarts';
 import { ChartConfig, Device, ChartInteractionPayload, DataView, DashboardFilterState, AggregationType, FormatConfig, ThresholdRule, ReferenceLine } from '../types';
 import { BaseEChart } from './charts/BaseEChart';
+import { SuperTable } from './charts/SuperTable';
 
 interface RenderChartProps {
   chart: ChartConfig;
@@ -15,6 +16,7 @@ interface RenderChartProps {
   allCharts?: ChartConfig[]; // [V2-5] Needed for container to find children
 }
 
+// ... (Keep existing helpers: DEFAULT_COLORS, STATUS_COLOR_MAP, evaluateExpression, aggregateValues, calculateMovingAverage, formatValue, getThresholdColor, buildMarkLines) ...
 const DEFAULT_COLORS = [
   '#6366f1', // Indigo
   '#10b981', // Emerald
@@ -184,7 +186,16 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
       referenceLines: chart.style?.referenceLines || [],
       fontSize: chart.style?.fontSize || 14,
       textAlign: chart.style?.textAlign || 'left',
-      background: chart.style?.background || 'transparent'
+      background: chart.style?.background || undefined,
+      textColor: chart.style?.textColor || undefined,
+      borderRadius: chart.style?.borderRadius ?? 32, // Default 32px
+      // V3.0 Table
+      enablePagination: chart.style?.enablePagination || false,
+      pageSize: chart.style?.pageSize || 10,
+      showRowNumber: chart.style?.showRowNumber || false,
+      // V3.3 Table Advanced
+      columnWidths: chart.style?.columnWidths || {},
+      rowActions: chart.style?.rowActions || []
     };
   }, [chart.style]);
 
@@ -209,8 +220,15 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
           if (filterKey === '_time_range') return;
 
           result = result.filter(d => {
-              // @ts-ignore - Dynamic access to device properties
-              return String(d[filterKey]) === String(filterValue) || d.name === filterValue; 
+              // Fuzzy search for TEXT_INPUT logic
+              // If device property contains value string (case insensitive)
+              // @ts-ignore
+              const propVal = d[filterKey];
+              if (typeof propVal === 'string' && typeof filterValue === 'string') {
+                  if (propVal.toLowerCase().includes(filterValue.toLowerCase())) return true;
+              }
+              // Also check exact match for IDs/Status etc
+              return String(propVal) === String(filterValue) || d.name === filterValue; 
           });
       });
 
@@ -284,6 +302,32 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
       })).filter(d => d.history.length > 0);
   }, [enrichedDevices, primaryMetric, primaryAgg]);
 
+  // --- [V3.0] Table Data Prep (Multi-Column) ---
+  const tableData = useMemo(() => {
+      if (chart.type !== 'table') return [];
+      
+      return enrichedDevices.map(d => {
+          const row: any = { ...d }; // Base metadata (id, name, ip, status...)
+          
+          // Flatten Metrics (Calculate Aggregation for each selected metric)
+          chart.metrics.forEach(mKey => {
+              const agg = chart.aggregations?.[mKey] || 'LAST';
+              const history = d.metrics[mKey];
+              if (history && history.length > 0) {
+                  if (agg === 'LAST') {
+                      row[mKey] = history[history.length - 1].value;
+                  } else {
+                      row[mKey] = aggregateValues(history.map(x => x.value), agg);
+                  }
+              } else {
+                  row[mKey] = null;
+              }
+          });
+          
+          return row;
+      });
+  }, [enrichedDevices, chart.type, chart.metrics, chart.aggregations]);
+
   // --- Cross-Device Aggregation (KPI / Gauge) ---
   const aggregatedSingleValue = useMemo(() => 
       singleMetricData.length > 0 
@@ -291,12 +335,22 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
           : 0
   , [singleMetricData, primaryAgg]);
 
+  // --- Helper to resolve semantic label and unit from DataView Model ---
+  const resolveFieldMeta = (key: string) => {
+      const fieldDef = dataView?.model?.[key];
+      return {
+          label: fieldDef?.alias || key,
+          unit: fieldDef?.unit || ''
+      };
+  };
+
   // --- Multi-Series Data Prep (Line/Area) ---
   const multiSeriesData = useMemo(() => {
       if (chart.type !== 'line' && chart.type !== 'area') return null;
 
       const seriesList = chart.metrics.map((metricKey, index) => {
           const aggType = chart.aggregations?.[metricKey] || 'AVG';
+          const meta = resolveFieldMeta(metricKey);
           
           const validDevices = enrichedDevices.filter(d => d.metrics[metricKey] && d.metrics[metricKey].length > 0);
           if (validDevices.length === 0) return null;
@@ -320,12 +374,18 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
           const paletteColor = styles.colors[index % styles.colors.length];
           const finalColor = getThresholdColor(lastValue, styles.thresholds, paletteColor);
 
+          // [New Feature] Detect if this is a Status metric to enable Step Line
+          const isStatus = metricKey.toLowerCase().includes('status');
+
           return {
-              key: `${metricKey} (${aggType})`,
+              key: `${meta.label} (${aggType})`, // Use alias in legend
+              originalKey: metricKey,
+              unit: meta.unit,
               color: finalColor, // Apply threshold or palette color
-              data: aggregatedHistory
+              data: aggregatedHistory,
+              isStatus // Flag for step rendering
           };
-      }).filter(Boolean) as { key: string, color: string, data: number[] }[];
+      }).filter(Boolean) as { key: string, originalKey: string, unit: string, color: string, data: number[], isStatus: boolean }[];
       
       let labels: string[] = [];
       if (chart.metrics.length > 0 && enrichedDevices.length > 0) {
@@ -337,7 +397,7 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
       }
 
       return { series: seriesList, labels };
-  }, [enrichedDevices, chart.metrics, chart.aggregations, chart.type, isDark, styles.colors, styles.thresholds]);
+  }, [enrichedDevices, chart.metrics, chart.aggregations, chart.type, isDark, styles.colors, styles.thresholds, dataView?.model]);
 
 
   // --- ECharts Options Generation ---
@@ -375,11 +435,24 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
                   if (Array.isArray(params)) {
                       let html = `<div style="margin-bottom:4px;opacity:0.5">${params[0].axisValue}</div>`;
                       params.forEach((p: any) => {
-                          const valStr = typeof p.value === 'number' ? formatValue(p.value, chart.format) : '-';
+                          // Try to find the series unit from multiSeriesData
+                          const seriesMeta = multiSeriesData?.series.find(s => s.key === p.seriesName);
+                          const unit = seriesMeta?.unit || '';
+                          
+                          // Use formatter if configured, else default to value + optional view unit
+                          const valStr = typeof p.value === 'number' 
+                              ? formatValue(p.value, chart.format) 
+                              : '-';
+                          
+                          // Append view unit if not using percentage format which adds %
+                          const displayStr = (chart.format?.type === 'percent' || chart.format?.unitSuffix) 
+                              ? valStr 
+                              : (unit ? `${valStr} ${unit}` : valStr);
+
                           html += `<div style="display:flex;align-items:center;gap:4px">
                                     <div style="width:8px;height:8px;border-radius:50%;background-color:${p.color}"></div>
                                     <span>${p.seriesName}:</span>
-                                    <span style="font-weight:900">${valStr}</span>
+                                    <span style="font-weight:900">${displayStr}</span>
                                    </div>`;
                       });
                       return html;
@@ -391,7 +464,7 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
           legend: {
               show: styles.showLegend,
               top: styles.legendPosition === 'bottom' ? 'bottom' : 'top',
-              textStyle: { color: isDark ? '#cbd5e1' : '#64748b' },
+              textStyle: { color: styles.textColor || (isDark ? '#cbd5e1' : '#64748b') },
               icon: 'circle'
           },
           color: styles.colors
@@ -402,16 +475,21 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
           
           // [V2-8] Apply Moving Average if enabled
           const displaySeries = multiSeriesData.series.flatMap(s => {
-              const originalSeries = {
+              
+              // [Optimization] If it's a 'status' metric, use Step Line (Square Wave)
+              const isStep = s.isStatus;
+
+              const originalSeries: any = {
                   name: s.key,
                   type: 'line' as const,
                   data: s.data,
-                  smooth: true,
+                  smooth: !isStep, // Disable smooth for status
+                  step: isStep ? 'start' : undefined, // Enable step for status
                   symbol: 'none',
                   lineStyle: { width: 3 },
                   itemStyle: { color: s.color },
                   markLine: markLine, 
-                  areaStyle: chart.type === 'area' ? {
+                  areaStyle: chart.type === 'area' || isStep ? { // Enable area for Step too (looks like digital signal)
                       opacity: 0.2,
                       color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
                           { offset: 0, color: s.color },
@@ -420,8 +498,8 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
                   } : undefined
               };
 
-              // If Trend Analysis is enabled, add a smoothed line
-              if (chart.analysis?.enableMovingAverage && chart.analysis.movingAverageWindow) {
+              // If Trend Analysis is enabled AND it's NOT a status metric, add a smoothed line
+              if (chart.analysis?.enableMovingAverage && chart.analysis.movingAverageWindow && !isStep) {
                   const maData = calculateMovingAverage(s.data, chart.analysis.movingAverageWindow);
                   const trendSeries = {
                       name: `${s.key} (MA-${chart.analysis.movingAverageWindow})`,
@@ -437,7 +515,6 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
                       itemStyle: { color: chart.analysis.trendLineColor || '#ffffff' },
                       z: 10 // Render on top
                   };
-                  // Return both original and trend, or just trend? Usually both.
                   return [originalSeries, trendSeries];
               }
 
@@ -453,14 +530,14 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
                   show: styles.xAxisLabel,
                   axisLine: { show: false },
                   axisTick: { show: false },
-                  axisLabel: { color: isDark ? '#64748b' : '#94a3b8', fontSize: 10 }
+                  axisLabel: { color: styles.textColor || (isDark ? '#64748b' : '#94a3b8'), fontSize: 10 }
               },
               yAxis: {
                   type: 'value' as const,
                   show: styles.yAxisLabel,
                   splitLine: { show: styles.showGrid, lineStyle: { type: 'dashed', color: isDark ? '#334155' : '#e2e8f0' } },
                   axisLabel: { 
-                      color: isDark ? '#64748b' : '#94a3b8', 
+                      color: styles.textColor || (isDark ? '#64748b' : '#94a3b8'), 
                       fontSize: 10,
                       formatter: (val: number) => formatValue(val, { ...chart.format, type: 'number', precision: 0 }) 
                   }
@@ -476,10 +553,12 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
               tooltip: { 
                   trigger: 'item',
                   // V2-1 Formatter
-                  formatter: (p: any) => `
+                  formatter: (p: any) => {
+                      const meta = resolveFieldMeta(primaryMetric);
+                      return `
                       <div style="font-weight:bold">${p.name}</div>
-                      <div>${p.seriesName}: ${formatValue(p.value, chart.format)}</div>
-                  `
+                      <div>${p.seriesName}: ${formatValue(p.value, chart.format)} ${meta.unit}</div>
+                  `}
               },
               xAxis: {
                   type: 'category' as const,
@@ -487,20 +566,20 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
                   show: styles.xAxisLabel,
                   axisLine: { show: false },
                   axisTick: { show: false },
-                  axisLabel: { color: isDark ? '#64748b' : '#94a3b8', fontSize: 10, interval: 0, width: 60, overflow: 'truncate' }
+                  axisLabel: { color: styles.textColor || (isDark ? '#64748b' : '#94a3b8'), fontSize: 10, interval: 0, width: 60, overflow: 'truncate' }
               },
               yAxis: {
                   type: 'value' as const,
                   show: styles.yAxisLabel,
                   splitLine: { show: styles.showGrid, lineStyle: { type: 'dashed', color: isDark ? '#334155' : '#e2e8f0' } },
                   axisLabel: { 
-                      color: isDark ? '#64748b' : '#94a3b8', 
+                      color: styles.textColor || (isDark ? '#64748b' : '#94a3b8'), 
                       fontSize: 10,
                       formatter: (val: number) => formatValue(val, { ...chart.format, type: 'number', precision: 0 }) 
                   }
               },
               series: [{
-                  name: `${primaryMetric} (${primaryAgg})`,
+                  name: `${resolveFieldMeta(primaryMetric).label} (${primaryAgg})`,
                   type: 'bar' as const,
                   markLine: markLine, // [V2-3] Reference Lines
                   data: singleMetricData.map((d, i) => {
@@ -541,13 +620,13 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
               },
               legend: { ...commonOptions.legend, icon: 'circle' },
               series: [{
-                  name: `${primaryMetric} (${primaryAgg})`,
+                  name: `${resolveFieldMeta(primaryMetric).label} (${primaryAgg})`,
                   type: 'pie' as const,
                   radius: ['40%', '70%'],
                   center: ['50%', '55%'],
                   itemStyle: {
                       borderRadius: 5,
-                      borderColor: isDark ? '#1e293b' : '#fff',
+                      borderColor: styles.background || (isDark ? '#1e293b' : '#fff'),
                       borderWidth: 2
                   },
                   label: { show: false },
@@ -579,7 +658,7 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
                   type: 'radar' as const,
                   data: [{
                       value: singleMetricData.slice(0, 6).map(d => d.value),
-                      name: `${primaryMetric} (${primaryAgg})`,
+                      name: `${resolveFieldMeta(primaryMetric).label} (${primaryAgg})`,
                       areaStyle: { opacity: 0.2, color: styles.colors[0] },
                       itemStyle: { color: styles.colors[0] }
                   }]
@@ -591,6 +670,7 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
       if (chart.type === 'gauge') {
           // V2-2: Gauge color based on threshold of aggregated value
           const gaugeColor = getThresholdColor(aggregatedSingleValue, styles.thresholds, styles.colors[0]);
+          const meta = resolveFieldMeta(primaryMetric);
           
           return {
               ...commonOptions,
@@ -613,8 +693,8 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
                       offsetCenter: [0, '-10%'],
                       fontSize: 30,
                       fontWeight: 'bolder',
-                      formatter: (val: number) => formatValue(val, { ...chart.format, precision: 0 }),
-                      color: isDark ? '#fff' : '#334155'
+                      formatter: (val: number) => `${formatValue(val, { ...chart.format, precision: 0 })}${meta.unit}`,
+                      color: styles.textColor || (isDark ? '#fff' : '#334155')
                   },
                   data: [{ value: aggregatedSingleValue }]
               }]
@@ -622,14 +702,23 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
       }
 
       return null;
-  }, [chart.type, chart.format, chart.analysis, multiSeriesData, singleMetricData, primaryMetric, primaryAgg, aggregatedSingleValue, isDark, styles, consistentColorMap]);
+  }, [chart.type, chart.format, chart.analysis, multiSeriesData, singleMetricData, primaryMetric, primaryAgg, aggregatedSingleValue, isDark, styles, consistentColorMap, dataView?.model]);
 
 
   // Dynamic Styles for Container
-  const bgClass = isDark ? 'bg-slate-800/50 backdrop-blur-md border-white/10' : 'bg-white border-slate-100';
-  const textPrimary = isDark ? 'text-white' : 'text-slate-800';
-  const textSecondary = isDark ? 'text-slate-400' : 'text-slate-400';
-  const textMuted = isDark ? 'text-slate-500' : 'text-slate-300';
+  const containerStyle: React.CSSProperties = {
+      borderRadius: `${styles.borderRadius}px`
+  };
+  if (styles.background) containerStyle.backgroundColor = styles.background;
+  if (styles.textColor) containerStyle.color = styles.textColor;
+
+  const bgClass = styles.background 
+      ? `border-transparent shadow-sm` // Custom background implies no border usually, or specific border logic
+      : (isDark ? 'bg-slate-800/50 backdrop-blur-md border-white/10' : 'bg-white border-slate-100');
+
+  const textPrimary = styles.textColor ? '' : (isDark ? 'text-white' : 'text-slate-800');
+  const textSecondary = styles.textColor ? 'opacity-80' : (isDark ? 'text-slate-400' : 'text-slate-400');
+  const textMuted = styles.textColor ? 'opacity-60' : (isDark ? 'text-slate-500' : 'text-slate-300');
 
   // --- Interaction Handler ---
   const handleEvents = useMemo(() => {
@@ -651,12 +740,12 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
   // [V2-6] Rich Media Handling (Text / Image) - Return early, no data processing needed
   if (chart.type === 'text') {
       return (
-          <div className={`h-full w-full p-4 flex flex-col justify-center rounded-[32px] overflow-hidden`} style={{ backgroundColor: styles.background }}>
+          <div className={`h-full w-full p-4 flex flex-col justify-center overflow-hidden`} style={{ backgroundColor: styles.background, color: styles.textColor, borderRadius: `${styles.borderRadius}px` }}>
               <div 
                   style={{ 
                       fontSize: `${styles.fontSize}px`, 
                       textAlign: styles.textAlign, 
-                      color: isDark ? '#fff' : '#1e293b',
+                      color: styles.textColor || (isDark ? '#fff' : '#1e293b'),
                       whiteSpace: 'pre-wrap',
                       fontWeight: 'bold'
                   }}
@@ -669,7 +758,7 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
 
   if (chart.type === 'image') {
       return (
-          <div className={`h-full w-full p-0 rounded-[32px] overflow-hidden flex items-center justify-center`} style={{ backgroundColor: styles.background }}>
+          <div className={`h-full w-full p-0 overflow-hidden flex items-center justify-center`} style={{ backgroundColor: styles.background, borderRadius: `${styles.borderRadius}px` }}>
               {chart.content ? (
                   <img src={chart.content} alt={chart.name} className="max-w-full max-h-full object-contain" />
               ) : (
@@ -683,8 +772,6 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
   }
 
   // [V2-5] Container Rendering
-  // IMPORTANT: The Container itself should NOT render the card shell (border, bg) if it is wrapping another chart.
-  // It should just be a transparent placeholder that renders the active child.
   if (chart.type === 'container') {
       const childrenIds = chart.container?.childChartIds || [];
       const activeChildId = childrenIds[activeIndex];
@@ -697,19 +784,18 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
 
       return (
           <div 
-            className={`h-full w-full relative flex flex-col group/container overflow-hidden rounded-[32px]`} // Removed bgClass/border to prevent double boxing
+            className={`h-full w-full relative flex flex-col group/container overflow-hidden ${bgClass}`} 
+            style={containerStyle}
             onMouseEnter={() => setIsPaused(true)}
             onMouseLeave={() => setIsPaused(false)}
           >
               <div className="flex-1 min-h-0 relative">
                   {activeChildChart ? (
                       <div key={activeChildChart.id} className="absolute inset-0 animate-in fade-in zoom-in-95 duration-500">
-                          {/* Recursively Render Child without outer container styles if possible, or nested */}
-                          {/* Note: We pass the child's config but inherit container's context like devices/filters */}
                           <RenderChart 
                               chart={activeChildChart} 
                               devices={devices} 
-                              dataView={childDataView} // Pass the CORRECT data view for the child
+                              dataView={childDataView} 
                               dataViews={dataViews}
                               filters={filters}
                               theme={theme}
@@ -718,13 +804,12 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
                           />
                       </div>
                   ) : (
-                      <div className={`flex items-center justify-center h-full text-slate-300 border-2 border-dashed border-slate-100 rounded-[32px]`}>
+                      <div className={`flex items-center justify-center h-full text-slate-300 border-2 border-dashed border-slate-100`} style={{ borderRadius: `${styles.borderRadius}px` }}>
                           <p className="text-xs font-bold uppercase">Empty Slot / Chart Not Found</p>
                       </div>
                   )}
               </div>
 
-              {/* Navigation Dots */}
               {childrenIds.length > 1 && (
                   <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 p-1.5 bg-black/20 backdrop-blur-sm rounded-full opacity-0 group-hover/container:opacity-100 transition-opacity duration-300 z-20">
                       {childrenIds.map((_, idx) => (
@@ -736,13 +821,6 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
                       ))}
                   </div>
               )}
-              
-              {/* Play/Pause Indicator (Optional) */}
-              {isPaused && childrenIds.length > 1 && (
-                  <div className="absolute top-4 right-4 text-white/50 bg-black/20 p-1 rounded-full backdrop-blur-sm pointer-events-none z-20">
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-                  </div>
-              )}
           </div>
       );
   }
@@ -750,7 +828,7 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
   // --- EMPTY STATE IF NO DATA ---
   if (enrichedDevices.length === 0) {
       return (
-          <div className={`${bgClass} p-5 rounded-[32px] border shadow-sm h-full flex flex-col items-center justify-center`}>
+          <div className={`${bgClass} p-5 border shadow-sm h-full flex flex-col items-center justify-center`} style={containerStyle}>
               <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center mb-2">
                  <svg className="w-5 h-5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
               </div>
@@ -763,13 +841,14 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
   // V2-2: KPI Dynamic Styling
   const kpiColor = getThresholdColor(aggregatedSingleValue, styles.thresholds, styles.colors[0]);
   const isKpiThresholdActive = kpiColor !== styles.colors[0];
+  const primaryMeta = resolveFieldMeta(primaryMetric);
 
   return (
-      <div className={`${bgClass} p-5 rounded-[32px] border shadow-sm h-full flex flex-col relative group overflow-hidden transition-colors duration-300`}>
+      <div className={`${bgClass} p-5 border shadow-sm h-full flex flex-col relative group overflow-hidden transition-colors duration-300`} style={containerStyle}>
           {/* Header */}
           <div className="flex justify-between items-start mb-2 z-10 relative flex-shrink-0 h-6">
               <div className="flex-1 min-w-0">
-                  <h4 className={`font-bold ${textPrimary} text-sm truncate pr-2`}>{chart.name}</h4>
+                  <h4 className={`font-bold ${textPrimary} text-sm truncate pr-2`} style={{ color: styles.textColor }}>{chart.name}</h4>
               </div>
               <div className="flex items-center gap-1">
                   {chart.type !== 'kpi' && chart.type !== 'table' && primaryAgg !== 'AVG' && (
@@ -798,49 +877,41 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
                                style={isKpiThresholdActive ? { backgroundColor: kpiColor + '20' } : {}}
                                onClick={() => onInteract?.({ name: primaryMetric, value: aggregatedSingleValue, dimensionKey: 'metric' })}>
                               <div className="text-4xl lg:text-5xl font-black tracking-tighter" style={{ color: kpiColor }}>
-                                  {formatValue(aggregatedSingleValue, chart.format)}
+                                  {formatValue(aggregatedSingleValue, chart.format)} <span className="text-2xl opacity-50 font-medium">{primaryMeta.unit}</span>
                               </div>
                               <div className={`mt-2 px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-widest ${isDark ? 'bg-slate-700' : 'bg-slate-100'}`} style={{ color: isDark ? 'white' : kpiColor }}>
-                                  {primaryAgg} {primaryMetric}
+                                  {primaryAgg} {primaryMeta.label}
                               </div>
                           </div>
                       )}
 
-                      {/* 8. Table */}
+                      {/* 8. Table (Replaced with SuperTable [V3.0]) */}
                       {chart.type === 'table' && (
-                          <div className="h-full overflow-hidden flex flex-col w-full">
-                              <div className={`flex justify-between border-b pb-2 mb-2 ${isDark ? 'border-slate-700' : 'border-slate-50'}`}>
-                                  <span className={`text-[9px] font-black uppercase ${textMuted}`}>Device</span>
-                                  <span className={`text-[9px] font-black uppercase ${textMuted}`}>Value ({primaryAgg === 'LAST' ? 'Now' : primaryAgg})</span>
-                              </div>
-                              <div className="overflow-y-auto custom-scrollbar flex-1 space-y-1">
-                                  {singleMetricData.map((item, i) => {
-                                      // V2-2: Table Row Highlighting
-                                      const rowColor = getThresholdColor(item.value, styles.thresholds);
-                                      const isRowActive = rowColor !== styles.colors[0] && rowColor !== '#6366f1';
-                                      
-                                      return (
-                                          <div 
-                                              key={i} 
-                                              onClick={() => onInteract?.({ name: item.name, value: item.value, dimensionKey: 'name' })}
-                                              className={`flex justify-between items-center py-2 px-2 rounded-lg transition-colors ${isDark ? 'hover:bg-slate-700' : 'hover:bg-slate-50'} ${onInteract ? 'cursor-pointer' : ''}`}
-                                              style={isRowActive ? { backgroundColor: rowColor + '15' } : {}}
-                                          >
-                                              <span className={`text-[10px] font-bold truncate ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{item.name}</span>
-                                              <span className="text-xs font-mono font-bold" style={{ color: isRowActive ? rowColor : styles.colors[0] }}>
-                                                  {formatValue(item.value, chart.format)}
-                                              </span>
-                                          </div>
-                                      );
-                                  })}
-                              </div>
-                          </div>
+                          <SuperTable 
+                              data={tableData}
+                              columns={[...chart.dimensions, ...chart.metrics]} // Show dimensions first, then metrics
+                              // Rename headers using alias
+                              columnHeaders={
+                                  [...chart.dimensions, ...chart.metrics].reduce((acc, key) => {
+                                      acc[key] = resolveFieldMeta(key).label;
+                                      return acc;
+                                  }, {} as Record<string, string>)
+                              }
+                              style={styles}
+                              format={chart.format}
+                              thresholds={styles.thresholds}
+                              theme={theme}
+                              onRowClick={(row) => onInteract?.({ name: 'row_click', value: 0, series: 'table', row })}
+                              onPageSizeChange={(size) => onInteract?.({ name: 'resize', value: size, dimensionKey: 'pageSize', series: chart.id })} // Bubble up resize event
+                              onActionClick={(actionId, row) => onInteract?.({ name: 'action_click', value: 0, series: actionId, row, actionId })} // Pass action click
+                              onColumnResize={(col, width) => console.log('Resized:', col, width)} // Could save to chart config
+                          />
                       )}
                   </>
               )}
           </div>
           
-          <div className={`absolute -bottom-6 -right-6 w-24 h-24 rounded-full blur-2xl -z-0 pointer-events-none`} style={{ backgroundColor: styles.colors[0] + '15' }}></div>
+          {!styles.background && <div className={`absolute -bottom-6 -right-6 w-24 h-24 rounded-full blur-2xl -z-0 pointer-events-none`} style={{ backgroundColor: styles.colors[0] + '15' }}></div>}
       </div>
   );
 };

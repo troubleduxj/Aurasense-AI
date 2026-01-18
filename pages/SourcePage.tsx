@@ -3,6 +3,38 @@ import React, { useState, useEffect } from 'react';
 import { DataSource } from '../types';
 import { MOCK_TDENGINE_SCHEMA } from '../mockData';
 
+// Helper Component for Key-Value Editing (e.g. Headers)
+const KeyValueEditor = ({ items, onChange, title }: { items: { key: string, value: string }[], onChange: (items: { key: string, value: string }[]) => void, title: string }) => {
+    const add = () => onChange([...items, { key: '', value: '' }]);
+    const remove = (idx: number) => onChange(items.filter((_, i) => i !== idx));
+    const update = (idx: number, field: 'key' | 'value', val: string) => {
+        const newItems = [...items];
+        newItems[idx][field] = val;
+        onChange(newItems);
+    };
+
+    return (
+        <div className="space-y-2">
+            <div className="flex justify-between items-center">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">{title}</label>
+                <button onClick={add} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 bg-indigo-50 px-2 py-1 rounded transition-colors">+ Add Item</button>
+            </div>
+            <div className="space-y-2">
+                {items.map((item, idx) => (
+                    <div key={idx} className="flex gap-2 group">
+                        <input type="text" placeholder="Key" value={item.key} onChange={e => update(idx, 'key', e.target.value)} className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none focus:border-indigo-400 transition-all placeholder-slate-300" />
+                        <input type="text" placeholder="Value" value={item.value} onChange={e => update(idx, 'value', e.target.value)} className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium outline-none focus:border-indigo-400 transition-all placeholder-slate-300" />
+                        <button onClick={() => remove(idx)} className="text-slate-300 hover:text-rose-500 p-2 opacity-0 group-hover:opacity-100 transition-all">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                    </div>
+                ))}
+                {items.length === 0 && <div className="text-[10px] text-slate-400 italic py-2 border border-dashed border-slate-200 rounded-lg text-center bg-slate-50/50">No headers configured</div>}
+            </div>
+        </div>
+    );
+};
+
 interface SourcePageProps {
   dataSources: DataSource[];
   onSaveSource: (source: DataSource) => void;
@@ -18,7 +50,7 @@ export const SourcePage: React.FC<SourcePageProps> = ({ dataSources, onSaveSourc
   }>({
       name: '',
       type: 'API',
-      config: { url: '', method: 'GET', token: '' }
+      config: { url: '', method: 'GET', headers: [], body: '' }
   });
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
@@ -34,6 +66,19 @@ export const SourcePage: React.FC<SourcePageProps> = ({ dataSources, onSaveSourc
       } catch (e) {
         parsedConfig = { url: editingSource.config };
       }
+
+      // Ensure API fields structure exists for legacy data
+      if (editingSource.type === 'API') {
+          if (!parsedConfig.method) parsedConfig.method = 'GET';
+          if (!parsedConfig.headers) parsedConfig.headers = [];
+          if (!parsedConfig.body) parsedConfig.body = '';
+          // Migrate old token field to Headers if present
+          if (parsedConfig.token) {
+              parsedConfig.headers.push({ key: 'Authorization', value: `Bearer ${parsedConfig.token}` });
+              delete parsedConfig.token;
+          }
+      }
+
       setSourceForm({
         name: editingSource.name,
         type: editingSource.type,
@@ -43,7 +88,7 @@ export const SourcePage: React.FC<SourcePageProps> = ({ dataSources, onSaveSourc
       setSourceForm({
         name: '',
         type: 'API',
-        config: { url: '', method: 'GET', token: '' }
+        config: { url: '', method: 'GET', headers: [{ key: 'Content-Type', value: 'application/json' }], body: '' }
       });
     }
     setValidationErrors([]);
@@ -52,7 +97,7 @@ export const SourcePage: React.FC<SourcePageProps> = ({ dataSources, onSaveSourc
 
   const handleTypeChange = (newType: DataSource['type']) => {
     const defaultConfigs: Record<DataSource['type'], any> = {
-      API: { url: '', method: 'GET', token: '' },
+      API: { url: '', method: 'GET', headers: [{ key: 'Accept', value: 'application/json' }], body: '' },
       MySQL: { host: 'localhost', port: '3306', user: '', password: '', db: '' },
       PostgreSQL: { host: 'localhost', port: '5432', user: '', password: '', db: '' },
       TDengine: { host: 'localhost', port: '6030', user: 'root', password: '', db: '', stable: '' }
@@ -208,17 +253,52 @@ export const SourcePage: React.FC<SourcePageProps> = ({ dataSources, onSaveSourc
                   </h4>
 
                   {sourceForm.type === 'API' ? (
-                    <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Endpoint URL</label>
-                        <input 
-                          type="text" 
-                          value={sourceForm.config.url}
-                          onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, url: e.target.value } }))}
-                          className={`w-full px-5 py-3.5 bg-white border rounded-xl outline-none focus:border-indigo-400 font-mono text-xs text-indigo-600 ${validationErrors.includes('url') ? 'border-rose-400' : 'border-slate-100'}`}
-                          placeholder="https://api.example.com/v1"
-                        />
+                    <div className="space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
+                      <div className="flex gap-4">
+                          <div className="w-1/4">
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Method</label>
+                              <div className="relative">
+                                  <select 
+                                      value={sourceForm.config.method || 'GET'}
+                                      onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, method: e.target.value } }))}
+                                      className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl outline-none focus:border-indigo-400 font-black text-xs text-slate-700 appearance-none"
+                                  >
+                                      {['GET', 'POST', 'PUT', 'DELETE', 'PATCH'].map(m => <option key={m} value={m}>{m}</option>)}
+                                  </select>
+                                  <svg className="w-3 h-3 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" /></svg>
+                              </div>
+                          </div>
+                          <div className="flex-1">
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Endpoint URL</label>
+                              <input 
+                                  type="text" 
+                                  value={sourceForm.config.url || ''}
+                                  onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, url: e.target.value } }))}
+                                  className={`w-full px-5 py-3.5 bg-white border rounded-xl outline-none focus:border-indigo-400 font-mono text-xs text-indigo-600 ${validationErrors.includes('url') ? 'border-rose-400' : 'border-slate-200'}`}
+                                  placeholder="https://api.example.com/v1/resource"
+                              />
+                          </div>
                       </div>
+
+                      <div className="bg-white border border-slate-100 rounded-2xl p-4">
+                          <KeyValueEditor 
+                              title="Request Headers" 
+                              items={sourceForm.config.headers || []} 
+                              onChange={items => setSourceForm(prev => ({ ...prev, config: { ...prev.config, headers: items } }))}
+                          />
+                      </div>
+
+                      {['POST', 'PUT', 'PATCH'].includes(sourceForm.config.method) && (
+                          <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Request Body (JSON)</label>
+                              <textarea 
+                                  value={sourceForm.config.body || ''}
+                                  onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, body: e.target.value } }))}
+                                  className="w-full px-5 py-3.5 bg-white border border-slate-200 rounded-xl outline-none focus:border-indigo-400 font-mono text-xs text-slate-600 h-32 resize-none"
+                                  placeholder='{"key": "value"}'
+                              />
+                          </div>
+                      )}
                     </div>
                   ) : (
                     <div className="grid grid-cols-12 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">

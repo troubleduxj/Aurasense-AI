@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { ControllerConfig, DashboardFilterState } from '../types';
 
 interface ControllerBarProps {
@@ -23,6 +23,26 @@ export const ControllerBar: React.FC<ControllerBarProps> = ({ controllers, filte
   
   // Find filters that do NOT match any controller (Added via Chart Interaction)
   const interactiveFilters = activeKeys.filter(k => !controllers?.some(c => c.key === k));
+
+  // Local state for text input to debounce updates
+  const [textValues, setTextValues] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+      // Sync local text values with filter state
+      const newTextValues: Record<string, string> = {};
+      controllers?.filter(c => c.type === 'TEXT_INPUT').forEach(c => {
+          newTextValues[c.key] = filterState[c.key] || '';
+      });
+      setTextValues(newTextValues);
+  }, [filterState, controllers]);
+
+  const handleTextChange = (key: string, val: string) => {
+      setTextValues(prev => ({ ...prev, [key]: val }));
+      // Debounce call to onFilterChange handled via simple delay? 
+      // For simplicity in React without heavy lodash debounce:
+      // We'll trigger onBlur or Enter, or live update if performance allows (Mock data is fast)
+      onFilterChange(key, val);
+  };
 
   return (
     <div className="flex flex-col gap-3 mb-6 animate-in fade-in slide-in-from-top-4">
@@ -88,6 +108,20 @@ export const ControllerBar: React.FC<ControllerBarProps> = ({ controllers, filte
                                         </button>
                                     );
                                 })}
+                            </div>
+                        )}
+
+                        {/* 4. [V3.0] Text Input Controller */}
+                        {controller.type === 'TEXT_INPUT' && (
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    value={textValues[controller.key] || ''}
+                                    onChange={(e) => handleTextChange(controller.key, e.target.value)}
+                                    placeholder={controller.placeholder || 'Search...'}
+                                    className="pl-8 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 w-48 transition-all placeholder-slate-400"
+                                />
+                                <svg className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                             </div>
                         )}
                     </div>

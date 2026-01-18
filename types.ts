@@ -11,7 +11,9 @@ export enum DeviceType {
   GATEWAY = 'Gateway',
   SENSOR = 'Sensor',
   SERVER = 'Server',
-  ACTUATOR = 'Actuator'
+  ACTUATOR = 'Actuator',
+  WELDER = 'Welder',
+  CUTTER = 'Cutter'
 }
 
 // ... existing Device interfaces ...
@@ -66,12 +68,25 @@ export interface CalculatedField {
     expression: string; 
 }
 
+// [V3.1] Semantic Data Model Field Definition
+export interface DataViewField {
+    name: string;       // Original field name (key)
+    alias?: string;     // Display Name (e.g., "核心温度")
+    type?: 'STRING' | 'NUMBER' | 'DATE' | 'BOOLEAN';
+    unit?: string;      // Unit suffix (e.g., "°C")
+    format?: string;    // Format string (e.g., "#,##0.00")
+    description?: string; // Tooltip description
+    isVisible?: boolean; // Default visibility
+}
+
 export interface DataView {
   id: string;
   sourceId: string;
   tableName?: string; 
   name: string;
   fields: string[]; 
+  // [V3.1] Semantic Model
+  model?: Record<string, DataViewField>;
   calculatedFields?: CalculatedField[]; 
   filter?: string;
   mode?: 'GUI' | 'SQL';
@@ -116,6 +131,14 @@ export interface ContainerConfig {
     interval: number; // seconds
 }
 
+// [V3.3] Table Row Action Definition
+export interface RowAction {
+    id: string;
+    label: string;
+    type: 'primary' | 'danger' | 'default';
+    icon?: string; // Optional icon SVG path definition
+}
+
 export interface ChartStyle {
   colSpan?: 1 | 2 | 3; 
   heightClass?: 'h-64' | 'h-80' | 'h-96' | 'h-[400px]' | 'h-[500px]';
@@ -137,6 +160,34 @@ export interface ChartStyle {
   fontSize?: number;
   textAlign?: 'left' | 'center' | 'right';
   background?: string;
+  textColor?: string; // [V3.1] Card Text Color
+  borderRadius?: number; // [V3.2] Card Border Radius
+
+  // [V3.0] Table Configuration
+  enablePagination?: boolean;
+  pageSize?: number;
+  showRowNumber?: boolean;
+  
+  // [V3.3] Table Advanced Features
+  columnWidths?: Record<string, number>; // Key: field name, Value: pixel width
+  rowActions?: RowAction[]; // Custom action buttons
+}
+
+// [V3.2] Interaction Config
+export type InteractionType = 'navigate_dashboard' | 'open_modal' | 'external_link' | 'none';
+
+export interface InteractionParamMapping {
+    id: string;
+    sourceKey: 'name' | 'value' | 'series' | 'row_field'; // Data source from click event
+    sourceField?: string; // If sourceKey is 'row_field', which field?
+    targetKey: string; // Target filter key or URL param key
+}
+
+export interface ChartInteractionConfig {
+    type: InteractionType;
+    targetId?: string; // Dashboard ID or View ID
+    url?: string; // External URL
+    params?: InteractionParamMapping[]; // Parameter passing rules
 }
 
 export type AggregationType = 'AVG' | 'SUM' | 'MAX' | 'MIN' | 'COUNT' | 'LAST';
@@ -163,16 +214,22 @@ export interface ChartConfig {
 
   // [V2-5] Container Configuration
   container?: ContainerConfig;
+
+  // [V3.2] Interaction
+  interaction?: ChartInteractionConfig;
 }
 
 export interface ChartInteractionPayload {
+    chartId?: string; // [V3.2] Added to identify source chart
     name: string;     
     value: number;    
     series?: string;  
     dimensionKey?: string; 
+    row?: any; // [V3.0] Full row object for table clicks
+    actionId?: string; // [V3.3] ID of the action button clicked
 }
 
-export type ControllerType = 'SELECT' | 'TIME_RANGE' | 'RADIO_GROUP';
+export type ControllerType = 'SELECT' | 'TIME_RANGE' | 'RADIO_GROUP' | 'TEXT_INPUT';
 
 export interface ControllerConfig {
   id: string;
@@ -181,6 +238,7 @@ export interface ControllerConfig {
   key: string;       
   options?: string[]; 
   defaultValue?: any;
+  placeholder?: string; // [V3.0] For text input
 }
 
 export type DashboardFilterState = Record<string, any>;
@@ -205,16 +263,26 @@ export interface Dashboard {
   layout?: GridLayoutItem[]; 
 }
 
-// [IoT-1] SCADA Topology Types
+// [V3.4] Custom Page Definitions (Replaces SCADA)
+// [V3.5] Added DASHBOARD type to allow embedding DIY dashboards
+export type CustomPageType = 'IFRAME' | 'MARKDOWN' | 'DASHBOARD';
+
+export interface CustomPage {
+    id: string;
+    name: string;
+    type: CustomPageType;
+    content: string; // URL for IFRAME, Markdown text for MARKDOWN, DashboardID for DASHBOARD
+    description?: string;
+}
+
+// [V3.5] SCADA / Topology Types (Legacy Support)
 export type ScadaNodeType = 'tank' | 'pump' | 'pipe' | 'led' | 'value' | 'label';
 
 export interface ScadaBinding {
     deviceId: string;
     metricKey: string;
-    targetProp: 'value' | 'level' | 'fill' | 'flow_anim'; // level for tank, fill for color, flow_anim for pipe
-    min?: number; // for scaling (e.g. 0-100 level)
+    targetProp: 'value' | 'level' | 'fill' | 'flow_anim';
     max?: number;
-    thresholds?: ThresholdRule[]; // for color binding
 }
 
 export interface ScadaNode {
@@ -224,11 +292,22 @@ export interface ScadaNode {
     y: number;
     w: number;
     h: number;
-    text?: string;      // label text
-    label?: string;     // Added label property
-    rotation?: number;  // degrees
-    fill?: string;      // default color
-    binding?: ScadaBinding; 
+    text?: string;
+    label?: string;
+    fill?: string;
+    rotation?: number;
+    binding?: ScadaBinding;
+}
+
+// [V3.6] Secure Share Token
+export interface ShareToken {
+    id: string; // The Token (UUID)
+    dashboardId: string;
+    label: string; // Description of who this link is for
+    createdAt: string;
+    expiresAt?: string; // ISO Date or null (permanent)
+    password?: string; // Optional access code
+    status: 'active' | 'revoked';
 }
 
 export interface DiagnosticReport {
@@ -271,3 +350,39 @@ export interface AuthConfig {
   issuerUrl: string;
   redirectUri: string;
 }
+
+// --- V3.0 Menu System Types ---
+export type MenuTargetType = 'dashboard' | 'system_page' | 'custom_content';
+
+// Defines the available system pages (hardcoded routes)
+export type SystemPageKey = 
+  | 'dashboard_monitor' // Default aggregator
+  | 'monitor' 
+  // | 'scada' // Removed
+  | 'history_analysis' 
+  | 'inventory' 
+  | 'device_class' 
+  | 'metric_def' 
+  | 'source' 
+  | 'view' 
+  | 'dashboard_manage' 
+  | 'chart' 
+  | 'users' 
+  | 'roles' 
+  | 'security' 
+  | 'llm'
+  | 'menu_manage'
+  | 'page_config'; // Added
+
+export interface MenuItem {
+  id: string;
+  parentId?: string; // Optional, for flat list handling
+  label: string;
+  icon: string; // SVG path d
+  type: 'FOLDER' | 'PAGE'; 
+  targetType?: MenuTargetType; // Required if type is PAGE
+  targetId?: string; // SystemPageKey or DashboardID or CustomPageID
+  children?: MenuItem[];
+  roles?: string[]; // [V3.1] Role-based access control. Array of Role IDs.
+}
+    

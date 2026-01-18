@@ -1,36 +1,35 @@
 
 import React from 'react';
+import { MenuItem } from '../types';
 
 interface NavItemProps {
-  id: string;
-  icon: string;
-  label: string;
-  activeTab: string;
+  item: MenuItem;
+  isActive: boolean;
   isSidebarExpanded: boolean;
-  onClick: (id: any) => void;
+  onClick: (id: string) => void;
 }
 
-const NavItem: React.FC<NavItemProps> = ({ id, icon, label, activeTab, isSidebarExpanded, onClick }) => {
-  const isActive = activeTab === id;
+const NavItem: React.FC<NavItemProps> = ({ item, isActive, isSidebarExpanded, onClick }) => {
   return (
     <button 
-      onClick={() => onClick(id)} 
+      onClick={() => onClick(item.id)} 
       className={`relative flex items-center p-3.5 rounded-2xl transition-all duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1.0)] w-full group overflow-hidden mb-1 ${
         isActive 
           ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-lg shadow-indigo-100' 
           : 'text-slate-500 hover:bg-white hover:text-indigo-600 hover:shadow-sm'
       } ${!isSidebarExpanded ? 'justify-center' : ''}`}
+      title={!isSidebarExpanded ? item.label : ''}
     >
       {/* Icon Wrapper with Scaling Effect */}
       <div className={`relative z-10 flex items-center justify-center transition-all duration-300 ${isSidebarExpanded ? 'mr-3' : 'scale-110'}`}>
         <svg className={`w-6 h-6 transition-transform duration-300 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-indigo-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={icon} />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={item.icon || 'M4 6h16M4 12h16M4 18h16'} />
         </svg>
       </div>
 
       {/* Label Wrapper - Animated Slide/Fade */}
       <div className={`flex items-center whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out origin-left ${isSidebarExpanded ? 'w-auto opacity-100 translate-x-0' : 'w-0 opacity-0 -translate-x-4'}`}>
-        <span className="relative z-10 text-[13px] font-bold tracking-tight">{label}</span>
+        <span className="relative z-10 text-[13px] font-bold tracking-tight">{item.label}</span>
       </div>
 
       {/* Active Indicator Line (Only visible when collapsed) */}
@@ -42,13 +41,14 @@ const NavItem: React.FC<NavItemProps> = ({ id, icon, label, activeTab, isSidebar
 };
 
 interface SidebarProps {
-  activeTab: string;
-  setActiveTab: (tab: any) => void;
+  menuConfig: MenuItem[];
+  activeMenuId: string;
+  onMenuClick: (menuId: string) => void;
   isSidebarExpanded: boolean;
   setIsSidebarExpanded: (expanded: boolean) => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isSidebarExpanded, setIsSidebarExpanded }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ menuConfig, activeMenuId, onMenuClick, isSidebarExpanded, setIsSidebarExpanded }) => {
   return (
     <aside 
       className={`glass-panel border-r border-slate-200 flex flex-col z-30 transition-all duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1.0)] relative ${
@@ -83,50 +83,43 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isSid
         </div>
       </div>
       
-      {/* Navigation Groups */}
+      {/* Navigation Groups - Dynamic Rendering */}
       <div className="flex flex-col flex-1 overflow-y-auto custom-scrollbar px-4 pb-6 gap-6">
-        {/* Group 1: 监测与分析 */}
-        <div>
-          <div className={`overflow-hidden transition-all duration-300 ${isSidebarExpanded ? 'h-auto opacity-100 mb-3 px-3' : 'h-0 opacity-0 mb-0'}`}>
-            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest opacity-60 whitespace-nowrap">监测与分析</p>
-          </div>
-          <NavItem id="dashboard_monitor" activeTab={activeTab} isSidebarExpanded={isSidebarExpanded} onClick={setActiveTab} icon="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" label="监测看板" />
-          <NavItem id="monitor" activeTab={activeTab} isSidebarExpanded={isSidebarExpanded} onClick={setActiveTab} icon="M13 10V3L4 14h7v7l9-11h-7z" label="实时监控中心" />
-          <NavItem id="history_analysis" activeTab={activeTab} isSidebarExpanded={isSidebarExpanded} onClick={setActiveTab} icon="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" label="历史数据分析" />
-        </div>
-
-        {/* Group 2: 资产管理 */}
-        <div>
-          <div className={`overflow-hidden transition-all duration-300 ${isSidebarExpanded ? 'h-auto opacity-100 mb-3 px-3' : 'h-0 opacity-0 mb-0'}`}>
-            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest opacity-60 whitespace-nowrap">资产管理</p>
-          </div>
-          <NavItem id="inventory" activeTab={activeTab} isSidebarExpanded={isSidebarExpanded} onClick={setActiveTab} icon="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" label="设备资产管理" />
-          <NavItem id="device_class" activeTab={activeTab} isSidebarExpanded={isSidebarExpanded} onClick={setActiveTab} icon="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4zm2 5a2 2 0 110-4 2 2 0 010 4z" label="设备分类定义" />
-          <NavItem id="metric_def" activeTab={activeTab} isSidebarExpanded={isSidebarExpanded} onClick={setActiveTab} icon="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z M13.5 9a4.5 4.5 0 114.5 4.5H13.5V9z" label="指标定义管理" />
-        </div>
-
-        {/* Group 3: 数据管理 */}
-        <div>
-          <div className={`overflow-hidden transition-all duration-300 ${isSidebarExpanded ? 'h-auto opacity-100 mb-3 px-3' : 'h-0 opacity-0 mb-0'}`}>
-            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest opacity-60 whitespace-nowrap">数据管理</p>
-          </div>
-          <NavItem id="source" activeTab={activeTab} isSidebarExpanded={isSidebarExpanded} onClick={setActiveTab} icon="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" label="数据源配置" />
-          <NavItem id="view" activeTab={activeTab} isSidebarExpanded={isSidebarExpanded} onClick={setActiveTab} icon="M9 17v-2a2 2 0 00-2-2H5a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2zm3-2a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zm-9-8a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H5a2 2 0 01-2-2V7zm12 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2 2V7z" label="数据视图定义" />
-          <NavItem id="chart" activeTab={activeTab} isSidebarExpanded={isSidebarExpanded} onClick={setActiveTab} icon="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" label="图表实验室" />
-          <NavItem id="dashboard_manage" activeTab={activeTab} isSidebarExpanded={isSidebarExpanded} onClick={setActiveTab} icon="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" label="看板配置" />
-          <NavItem id="scada" activeTab={activeTab} isSidebarExpanded={isSidebarExpanded} onClick={setActiveTab} icon="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" label="SCADA 组态" />
-        </div>
-
-        {/* Group 4 (Footer) */}
-        <div className="mt-auto">
-          <div className={`overflow-hidden transition-all duration-300 ${isSidebarExpanded ? 'h-auto opacity-100 mb-3 px-3' : 'h-0 opacity-0 mb-0'}`}>
-            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest opacity-60 whitespace-nowrap">系统管理</p>
-          </div>
-          <NavItem id="users" activeTab={activeTab} isSidebarExpanded={isSidebarExpanded} onClick={setActiveTab} icon="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" label="用户管理" />
-          <NavItem id="roles" activeTab={activeTab} isSidebarExpanded={isSidebarExpanded} onClick={setActiveTab} icon="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" label="角色管理" />
-          <NavItem id="security" activeTab={activeTab} isSidebarExpanded={isSidebarExpanded} onClick={setActiveTab} icon="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016zM12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" label="安全权限" />
-          <NavItem id="llm" activeTab={activeTab} isSidebarExpanded={isSidebarExpanded} onClick={setActiveTab} icon="M13 10V3L4 14h7v7l9-11h-7z" label="LLM 配置" />
-        </div>
+        {menuConfig.map((item) => {
+            if (item.type === 'FOLDER') {
+                return (
+                    <div key={item.id}>
+                        {/* Folder Header */}
+                        <div className={`overflow-hidden transition-all duration-300 ${isSidebarExpanded ? 'h-auto opacity-100 mb-3 px-3' : 'h-0 opacity-0 mb-0'}`}>
+                            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest opacity-60 whitespace-nowrap">
+                                {item.label}
+                            </p>
+                        </div>
+                        {/* Folder Children */}
+                        {item.children?.map(subItem => (
+                            <NavItem 
+                                key={subItem.id} 
+                                item={subItem} 
+                                isActive={activeMenuId === subItem.id} 
+                                isSidebarExpanded={isSidebarExpanded} 
+                                onClick={onMenuClick} 
+                            />
+                        ))}
+                    </div>
+                );
+            } else {
+                // Top-level Page Link
+                return (
+                    <NavItem 
+                        key={item.id} 
+                        item={item} 
+                        isActive={activeMenuId === item.id} 
+                        isSidebarExpanded={isSidebarExpanded} 
+                        onClick={onMenuClick} 
+                    />
+                );
+            }
+        })}
       </div>
     </aside>
   );
