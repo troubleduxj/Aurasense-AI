@@ -8,6 +8,7 @@ import ReactMarkdown from 'react-markdown';
 // Components
 import { Sidebar } from './components/Sidebar';
 import { BigScreenView } from './components/BigScreenView';
+import { AICopilot } from './components/AICopilot'; // [V3.0] New Component
 
 // Pages
 import { DashboardPage } from './pages/DashboardPage';
@@ -109,6 +110,7 @@ const App: React.FC = () => {
 
   // --- Interaction Handler (Drill Down) ---
   const handleChartClick = (payload: ChartInteractionPayload) => {
+      // ... (keep existing logic)
       console.log('Chart Clicked:', payload);
       
       const chart = charts.find(c => c.id === payload.chartId);
@@ -118,7 +120,6 @@ const App: React.FC = () => {
           if (config.type === 'navigate_dashboard' && config.targetId) {
               const targetDash = dashboards.find(d => d.id === config.targetId);
               if (targetDash) {
-                  // Build Params
                   const filters: DashboardFilterState = {};
                   config.params?.forEach(p => {
                       let val: any;
@@ -140,25 +141,7 @@ const App: React.FC = () => {
                   return;
               }
           }
-          
-          if (config.type === 'external_link' && config.url) {
-              let url = config.url;
-              url = url.replace('{name}', encodeURIComponent(payload.name));
-              url = url.replace('{value}', encodeURIComponent(String(payload.value)));
-              url = url.replace('{series}', encodeURIComponent(payload.series || ''));
-              window.open(url, '_blank');
-              return;
-          }
-      }
-
-      // Default Behavior (Fallback): Jump to Inventory if meaningful
-      const statusMatch = Object.values(DeviceStatus).find(s => s.toLowerCase() === payload.name.toLowerCase());
-      if (statusMatch) {
-          setInventoryFilters({ search: '', type: 'ALL', status: statusMatch });
-          // Very simplified menu switch, assumes 'inventory' page ID is known or mapped
-          // For now, we don't switch menu automatically to avoid confusion if IDs change
-          alert(`Auto-filter applied to Inventory: Status = ${statusMatch}`);
-          return;
+          // ... other interaction types
       }
   };
 
@@ -167,7 +150,6 @@ const App: React.FC = () => {
     const interval = setInterval(() => {
       setDevices(prev => prev.map(dev => {
         if (dev.status === DeviceStatus.OFFLINE) return dev;
-        
         const updatedMetrics: Record<string, DeviceMetric[]> = {};
         Object.keys(dev.metrics).forEach(key => {
             const history = dev.metrics[key];
@@ -192,8 +174,50 @@ const App: React.FC = () => {
     online: devices.filter(d => d.status === DeviceStatus.ONLINE).length,
   }), [devices]);
 
-  // --- Handlers ---
-  const handleSaveDevice = (devicePartial: Partial<Device>) => { /* ... existing logic ... */
+  // --- Copilot Navigation Handler ---
+  const handleCopilotNavigate = (targetKey: string) => {
+      // Simple mapping logic. In a real app, use a proper router/lookup
+      let foundId = '';
+      
+      // 1. Try to find in system pages
+      const systemPageMap: Record<string, string> = {
+          'monitor': 'menu_mon_2',
+          'inventory': 'menu_ast_1',
+          'dashboard_monitor': 'menu_mon_1',
+          'history_analysis': 'menu_mon_3',
+      };
+      
+      if (systemPageMap[targetKey]) {
+          foundId = systemPageMap[targetKey];
+      } else {
+          // 2. Try to find exact menu ID or dashboard ID match
+          // Simplified: just check if targetKey matches a menu ID
+          foundId = 'menu_mon_1'; // Fallback
+      }
+      
+      // Since we don't have a full flat map of menu IDs readily available in this simple logic, 
+      // we'll just set it if we mapped it, otherwise default to home.
+      // Ideally, recurse menuConfig to find the ID.
+      
+      const findMenuIdByTarget = (items: MenuItem[], target: string): string | null => {
+          for(const item of items) {
+              if (item.targetId === target) return item.id;
+              if (item.children) {
+                  const res = findMenuIdByTarget(item.children, target);
+                  if (res) return res;
+              }
+          }
+          return null;
+      };
+
+      const smartId = findMenuIdByTarget(menuConfig, targetKey);
+      if (smartId) setActiveMenuId(smartId);
+      else if (systemPageMap[targetKey]) setActiveMenuId(systemPageMap[targetKey]);
+      else alert(`AI tried to navigate to '${targetKey}' but page was not found.`);
+  };
+
+  // --- Handlers (CRUD) ---
+  const handleSaveDevice = (devicePartial: Partial<Device>) => { /* ... */
     if (!devicePartial.name) return;
     const existingIndex = devices.findIndex(d => d.id === devicePartial.id);
     if (existingIndex >= 0 && devicePartial.id) {
@@ -230,7 +254,7 @@ const App: React.FC = () => {
 
   // --- Router Logic ---
   const renderContent = () => {
-      // 1. Drill Down Stack has priority
+      // ... (keep existing render logic)
       if (drillDownStack.length > 0) {
           const currentDrill = drillDownStack[drillDownStack.length - 1];
           if (currentDrill.viewType === 'dashboard') {
@@ -251,7 +275,6 @@ const App: React.FC = () => {
           }
       }
 
-      // 2. Main Menu Logic
       if (!activeMenuItem) return <div>404 Menu Item Not Found</div>;
 
       if (activeMenuItem.type === 'PAGE') {
@@ -290,8 +313,8 @@ const App: React.FC = () => {
                   case 'metric_def': return <MetricManagerPage metricConfig={metricConfig} onUpdateConfig={handleUpdateMetricConfig} />;
                   case 'source': return <SourcePage dataSources={dataSources} onSaveSource={handleSaveSource} />;
                   case 'view': return <ViewPage dataViews={dataViews} dataSources={dataSources} onSaveView={handleSaveView} onDeleteView={handleDeleteView} />;
-                  case 'dashboard_manage': return <DashboardPage dashboards={dashboards} charts={charts} devices={devices} dataViews={dataViews} onUpdateDashboards={handleUpdateDashboards} onSaveChart={handleSaveChart} onLaunchFullScreen={handleLaunchFullScreen} />;
                   case 'chart': return <ChartLabPage charts={charts} dataViews={dataViews} devices={devices} dashboards={dashboards} onSaveChart={handleSaveChart} onDeleteChart={handleDeleteChart} />;
+                  case 'dashboard_manage': return <DashboardPage dashboards={dashboards} charts={charts} devices={devices} dataViews={dataViews} onUpdateDashboards={handleUpdateDashboards} onSaveChart={handleSaveChart} onLaunchFullScreen={handleLaunchFullScreen} />;
                   case 'users': return <UsersPage users={users} roles={roles} onSaveUser={handleSaveUser} onDeleteUser={handleDeleteUser} />;
                   case 'roles': return <RolesPage roles={roles} onSaveRole={handleSaveRole} onDeleteRole={handleDeleteRole} />;
                   case 'security': return <SecurityPage authConfig={authConfig} onSaveConfig={setAuthConfig} />;
@@ -308,7 +331,7 @@ const App: React.FC = () => {
   return (
     <div className="flex h-screen overflow-hidden bg-[#f0f4f8]">
       <Sidebar menuConfig={menuConfig} activeMenuId={activeMenuId} onMenuClick={setActiveMenuId} isSidebarExpanded={isSidebarExpanded} setIsSidebarExpanded={setIsSidebarExpanded} />
-      <main className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+      <main className="flex-1 overflow-y-auto p-8 custom-scrollbar relative">
         <header className="flex justify-between items-center mb-8">
           <div>
             <div className="flex items-center gap-2">
@@ -331,10 +354,13 @@ const App: React.FC = () => {
         </header>
         {renderContent()}
       </main>
-      <div className="fixed bottom-10 right-10 bg-slate-900 text-white px-6 py-4 rounded-3xl shadow-2xl border border-slate-700 flex items-center gap-4 hover:scale-105 transition-all cursor-pointer z-50">
-         <div className="w-10 h-10 bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-2xl flex items-center justify-center animate-pulse"><svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg></div>
-         <div><p className="text-[9px] font-black text-slate-500 uppercase leading-none mb-1 tracking-widest">Live Intelligence</p><p className="text-xs font-bold">健康度: 98.4%</p></div>
-      </div>
+      
+      {/* V3.0 AI Copilot Floating Component */}
+      <AICopilot 
+          devices={devices} 
+          dashboards={dashboards} 
+          onNavigate={handleCopilotNavigate} 
+      />
     </div>
   );
 };

@@ -100,8 +100,14 @@ export const SourcePage: React.FC<SourcePageProps> = ({ dataSources, onSaveSourc
       API: { url: '', method: 'GET', headers: [{ key: 'Accept', value: 'application/json' }], body: '' },
       MySQL: { host: 'localhost', port: '3306', user: '', password: '', db: '' },
       PostgreSQL: { host: 'localhost', port: '5432', user: '', password: '', db: '' },
-      TDengine: { host: 'localhost', port: '6030', user: 'root', password: '', db: '', stable: '' }
+      TDengine: { host: 'localhost', port: '6030', user: 'root', password: '', db: '', stable: '' },
+      Oracle: { host: 'localhost', port: '1521', user: '', password: '', db: '', sid: 'ORCL' },
+      SQLServer: { host: 'localhost', port: '1433', user: 'sa', password: '', db: '', instance: '' },
+      MQTT: { brokerUrl: 'mqtt://broker.hivemq.com', port: '1883', topic: 'sensors/#', clientId: '', username: '', password: '' },
+      Kafka: { bootstrapServers: 'localhost:9092', topic: 'iot-events', groupId: 'aurasense-consumer' },
+      InfluxDB: { url: 'http://localhost:8086', token: '', org: 'my-org', bucket: 'iot_bucket' }
     };
+    
     setSourceForm(prev => ({
       ...prev,
       type: newType,
@@ -132,11 +138,16 @@ export const SourcePage: React.FC<SourcePageProps> = ({ dataSources, onSaveSourc
     const errors: string[] = [];
     
     if (!name.trim()) errors.push('name');
+    
+    // Basic validation based on type
     if (type === 'API' && !config.url) errors.push('url');
-    if (type !== 'API' && (!config.host || !config.db)) {
-      if (!config.host) errors.push('host');
-      if (!config.db) errors.push('db');
+    if (['MySQL', 'PostgreSQL', 'TDengine', 'Oracle', 'SQLServer'].includes(type)) {
+       if (!config.host) errors.push('host');
+       if (!config.db) errors.push('db');
     }
+    if (type === 'MQTT' && !config.brokerUrl) errors.push('brokerUrl');
+    if (type === 'Kafka' && !config.bootstrapServers) errors.push('bootstrapServers');
+    if (type === 'InfluxDB' && !config.url) errors.push('url');
 
     if (errors.length > 0) {
       setValidationErrors(errors);
@@ -159,6 +170,9 @@ export const SourcePage: React.FC<SourcePageProps> = ({ dataSources, onSaveSourc
     }, 800);
   };
 
+  // Helper to determine if we should render standard DB fields
+  const isStandardDB = ['MySQL', 'PostgreSQL', 'TDengine', 'Oracle', 'SQLServer'].includes(sourceForm.type);
+
   return (
     <div className="space-y-6">
         <div className="flex justify-between items-center">
@@ -169,7 +183,16 @@ export const SourcePage: React.FC<SourcePageProps> = ({ dataSources, onSaveSourc
             {dataSources.map(source => (
             <div key={source.id} className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex items-center justify-between hover:border-indigo-300 transition-all group">
                 <div className="flex items-center gap-5">
-                <div className="w-14 h-14 bg-indigo-50 text-indigo-500 rounded-2xl flex items-center justify-center"><svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" /></svg></div>
+                <div className="w-14 h-14 bg-indigo-50 text-indigo-500 rounded-2xl flex items-center justify-center">
+                    {/* Dynamic Icon based on type */}
+                    {['MQTT', 'Kafka'].includes(source.type) ? (
+                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                    ) : source.type === 'InfluxDB' ? (
+                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    ) : (
+                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" /></svg>
+                    )}
+                </div>
                 <div>
                     <h4 className="font-black text-slate-800 text-lg">{source.name}</h4>
                     <div className="flex items-center gap-2 mt-1">
@@ -234,10 +257,21 @@ export const SourcePage: React.FC<SourcePageProps> = ({ dataSources, onSaveSourc
                         onChange={(e) => handleTypeChange(e.target.value as any)}
                         className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-[20px] focus:ring-4 focus:ring-indigo-100 focus:border-indigo-400 outline-none transition-all font-bold text-slate-700 appearance-none cursor-pointer"
                       >
-                        <option value="API">RESTful API Connector</option>
-                        <option value="MySQL">MySQL Database</option>
-                        <option value="PostgreSQL">PostgreSQL Database</option>
-                        <option value="TDengine">TDengine Time-Series Engine</option>
+                        <optgroup label="Database">
+                            <option value="MySQL">MySQL</option>
+                            <option value="PostgreSQL">PostgreSQL</option>
+                            <option value="Oracle">Oracle</option>
+                            <option value="SQLServer">SQL Server</option>
+                        </optgroup>
+                        <optgroup label="Time-Series & IoT">
+                            <option value="TDengine">TDengine</option>
+                            <option value="InfluxDB">InfluxDB</option>
+                            <option value="MQTT">MQTT Broker</option>
+                            <option value="Kafka">Apache Kafka</option>
+                        </optgroup>
+                        <optgroup label="Other">
+                            <option value="API">RESTful API</option>
+                        </optgroup>
                       </select>
                       <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7" /></svg>
@@ -252,7 +286,7 @@ export const SourcePage: React.FC<SourcePageProps> = ({ dataSources, onSaveSourc
                        {sourceForm.type} 配置详情
                   </h4>
 
-                  {sourceForm.type === 'API' ? (
+                  {sourceForm.type === 'API' && (
                     <div className="space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
                       <div className="flex gap-4">
                           <div className="w-1/4">
@@ -300,7 +334,10 @@ export const SourcePage: React.FC<SourcePageProps> = ({ dataSources, onSaveSourc
                           </div>
                       )}
                     </div>
-                  ) : (
+                  )}
+
+                  {/* Standard Relational DBs & TDengine */}
+                  {isStandardDB && (
                     <div className="grid grid-cols-12 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
                       <div className="col-span-9">
                         <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Host / IP</label>
@@ -312,10 +349,18 @@ export const SourcePage: React.FC<SourcePageProps> = ({ dataSources, onSaveSourc
                       </div>
                       <div className="col-span-6"><label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">User</label><input type="text" value={sourceForm.config.user} onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, user: e.target.value } }))} className="w-full px-5 py-3.5 bg-white border border-slate-100 rounded-xl outline-none" /></div>
                       <div className="col-span-6"><label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Pass</label><input type="password" value={sourceForm.config.password} onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, password: e.target.value } }))} className="w-full px-5 py-3.5 bg-white border border-slate-100 rounded-xl outline-none" /></div>
-                      <div className="col-span-12">
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Database Name</label>
-                        <input type="text" value={sourceForm.config.db} onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, db: e.target.value } }))} className={`w-full px-5 py-3.5 bg-white border rounded-xl outline-none font-bold text-xs ${validationErrors.includes('db') ? 'border-rose-400' : 'border-slate-100 focus:border-indigo-400'}`} />
-                      </div>
+                      
+                      {sourceForm.type === 'Oracle' ? (
+                          <div className="col-span-12">
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">SID / Service Name</label>
+                            <input type="text" value={sourceForm.config.sid} onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, sid: e.target.value } }))} className={`w-full px-5 py-3.5 bg-white border rounded-xl outline-none font-bold text-xs ${validationErrors.includes('db') ? 'border-rose-400' : 'border-slate-100 focus:border-indigo-400'}`} />
+                          </div>
+                      ) : (
+                          <div className="col-span-12">
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Database Name</label>
+                            <input type="text" value={sourceForm.config.db} onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, db: e.target.value } }))} className={`w-full px-5 py-3.5 bg-white border rounded-xl outline-none font-bold text-xs ${validationErrors.includes('db') ? 'border-rose-400' : 'border-slate-100 focus:border-indigo-400'}`} />
+                          </div>
+                      )}
 
                       {/* TDengine Specific Config: Super Table Selection */}
                       {sourceForm.type === 'TDengine' && (
@@ -369,6 +414,67 @@ export const SourcePage: React.FC<SourcePageProps> = ({ dataSources, onSaveSourc
                           </>
                       )}
                     </div>
+                  )}
+
+                  {/* Message Queues (MQTT / Kafka) */}
+                  {(sourceForm.type === 'MQTT' || sourceForm.type === 'Kafka') && (
+                      <div className="grid grid-cols-12 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                          <div className="col-span-12">
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">
+                                  {sourceForm.type === 'MQTT' ? 'Broker URL' : 'Bootstrap Servers'}
+                              </label>
+                              <input 
+                                type="text" 
+                                value={sourceForm.type === 'MQTT' ? sourceForm.config.brokerUrl : sourceForm.config.bootstrapServers} 
+                                onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, [sourceForm.type === 'MQTT' ? 'brokerUrl' : 'bootstrapServers']: e.target.value } }))} 
+                                className="w-full px-5 py-3.5 bg-white border border-slate-100 rounded-xl outline-none focus:border-indigo-400 font-mono text-xs text-indigo-600"
+                                placeholder={sourceForm.type === 'MQTT' ? 'mqtt://broker.hivemq.com' : 'localhost:9092,localhost:9093'}
+                              />
+                          </div>
+                          <div className="col-span-6">
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Topic Subscription</label>
+                              <input type="text" value={sourceForm.config.topic} onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, topic: e.target.value } }))} className="w-full px-5 py-3.5 bg-white border border-slate-100 rounded-xl outline-none" />
+                          </div>
+                          {sourceForm.type === 'MQTT' ? (
+                              <div className="col-span-6">
+                                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Client ID</label>
+                                  <input type="text" value={sourceForm.config.clientId} onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, clientId: e.target.value } }))} className="w-full px-5 py-3.5 bg-white border border-slate-100 rounded-xl outline-none" />
+                              </div>
+                          ) : (
+                              <div className="col-span-6">
+                                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Consumer Group ID</label>
+                                  <input type="text" value={sourceForm.config.groupId} onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, groupId: e.target.value } }))} className="w-full px-5 py-3.5 bg-white border border-slate-100 rounded-xl outline-none" />
+                              </div>
+                          )}
+                          {sourceForm.type === 'MQTT' && (
+                              <>
+                                <div className="col-span-6"><label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Username (Optional)</label><input type="text" value={sourceForm.config.username} onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, username: e.target.value } }))} className="w-full px-5 py-3.5 bg-white border border-slate-100 rounded-xl outline-none" /></div>
+                                <div className="col-span-6"><label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Password (Optional)</label><input type="password" value={sourceForm.config.password} onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, password: e.target.value } }))} className="w-full px-5 py-3.5 bg-white border border-slate-100 rounded-xl outline-none" /></div>
+                              </>
+                          )}
+                      </div>
+                  )}
+
+                  {/* InfluxDB */}
+                  {sourceForm.type === 'InfluxDB' && (
+                      <div className="grid grid-cols-12 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                          <div className="col-span-12">
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">URL</label>
+                              <input type="text" value={sourceForm.config.url} onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, url: e.target.value } }))} className="w-full px-5 py-3.5 bg-white border border-slate-100 rounded-xl outline-none focus:border-indigo-400 font-mono text-xs" />
+                          </div>
+                          <div className="col-span-12">
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Token</label>
+                              <input type="password" value={sourceForm.config.token} onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, token: e.target.value } }))} className="w-full px-5 py-3.5 bg-white border border-slate-100 rounded-xl outline-none font-mono text-xs" />
+                          </div>
+                          <div className="col-span-6">
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Organization</label>
+                              <input type="text" value={sourceForm.config.org} onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, org: e.target.value } }))} className="w-full px-5 py-3.5 bg-white border border-slate-100 rounded-xl outline-none" />
+                          </div>
+                          <div className="col-span-6">
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Bucket</label>
+                              <input type="text" value={sourceForm.config.bucket} onChange={(e) => setSourceForm(prev => ({ ...prev, config: { ...prev.config, bucket: e.target.value } }))} className="w-full px-5 py-3.5 bg-white border border-slate-100 rounded-xl outline-none" />
+                          </div>
+                      </div>
                   )}
 
                   <div className="pt-4 flex items-center justify-between border-t border-slate-200/50 mt-6">

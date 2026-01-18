@@ -2,7 +2,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { DataView, DataSource, CalculatedField, DataViewField } from '../types';
 import { MOCK_TDENGINE_SCHEMA } from '../mockData';
+import { generateSQLFromText } from '../geminiService'; // Import the new service
 
+// ... (keep existing interfaces and default fields) ...
 interface ViewPageProps {
   dataViews: DataView[];
   dataSources: DataSource[];
@@ -10,7 +12,6 @@ interface ViewPageProps {
   onDeleteView: (id: string) => void;
 }
 
-// Default Field Definitions for generic sources
 const DEFAULT_FIELD_GROUPS = {
   Time: ['ts', 'lastActive', 'lastMaintenance'],
   Metadata: ['id', 'name', 'type', 'status', 'location', 'ip', 'firmware', 'manufacturer'],
@@ -18,16 +19,20 @@ const DEFAULT_FIELD_GROUPS = {
 };
 
 export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSaveView, onDeleteView }) => {
+  // ... (keep existing state) ...
   const [currentViewId, setCurrentViewId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [fieldSearchTerm, setFieldSearchTerm] = useState('');
   
+  // NEW State for AI SQL
+  const [nlQuery, setNlQuery] = useState('');
+  const [isGeneratingSQL, setIsGeneratingSQL] = useState(false);
+
   const [viewForm, setViewForm] = useState<{
     name: string;
     sourceId: string;
     tableName: string;
     fields: string[];
-    // [V3.1] New model structure
     model: Record<string, DataViewField>;
     calculatedFields: CalculatedField[]; 
     filter: string;
@@ -45,9 +50,9 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
     customSql: "SELECT name, status, temperature FROM devices WHERE status = 'online'"
   });
 
-  // State for new calculated field input
   const [newCalcField, setNewCalcField] = useState<CalculatedField>({ name: '', expression: '' });
 
+  // ... (keep useEffect for loading viewForm) ...
   useEffect(() => {
     if (currentViewId) {
       const view = dataViews.find(v => v.id === currentViewId);
@@ -84,7 +89,7 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
     }
   }, [currentViewId, dataViews, dataSources]);
 
-  // SQL Parsing to populate fields for preview (Simulated)
+  // ... (keep useEffect for SQL Parsing) ...
   useEffect(() => {
       if (viewForm.mode === 'SQL' && viewForm.customSql) {
           try {
@@ -113,6 +118,7 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
       }
   }, [viewForm.customSql, viewForm.mode]);
 
+  // ... (keep memoized helpers) ...
   const selectedSource = useMemo(() => 
     dataSources.find(s => s.id === viewForm.sourceId), 
   [viewForm.sourceId, dataSources]);
@@ -134,6 +140,7 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
       return viewForm.tableName;
   }, [isTDengine, sourceConfig.stable, viewForm.tableName]);
 
+  // ... (keep rest of effects and handlers up to handleGenerateSQL) ...
   useEffect(() => {
       if (isTDengine && sourceConfig.stable && viewForm.tableName !== sourceConfig.stable) {
           setViewForm(prev => ({ ...prev, tableName: sourceConfig.stable }));
@@ -152,18 +159,16 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
       return DEFAULT_FIELD_GROUPS;
   }, [isTDengine, effectiveStable]);
 
+  // ... (keep toggleField, modelUpdate, calcField handlers) ...
   const handleToggleField = (field: string) => {
     setViewForm(prev => {
       const exists = prev.fields.includes(field);
       const newFields = exists ? prev.fields.filter(f => f !== field) : [...prev.fields, field];
       
-      // Update Model
       const newModel = { ...prev.model };
       if (!exists) {
-          // Add default model entry
-          newModel[field] = { name: field, alias: '', type: 'STRING' }; // Default type guess?
+          newModel[field] = { name: field, alias: '', type: 'STRING' }; 
       } else {
-          // Optional: remove from model to clean up? Or keep it.
           delete newModel[field];
       }
 
@@ -187,11 +192,8 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
 
   const handleAddCalculatedField = () => {
       if (!newCalcField.name || !newCalcField.expression) return;
-      
       const newModel = { ...viewForm.model };
-      // Also register calc field in model for metadata editing
-      newModel[newCalcField.name] = { name: newCalcField.name, alias: newCalcField.name, type: 'NUMBER' }; // Default calc field usually number
-
+      newModel[newCalcField.name] = { name: newCalcField.name, alias: newCalcField.name, type: 'NUMBER' }; 
       setViewForm(prev => ({
           ...prev,
           calculatedFields: [...prev.calculatedFields, { ...newCalcField }],
@@ -204,12 +206,28 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
       const fieldName = viewForm.calculatedFields[idx].name;
       const newModel = { ...viewForm.model };
       delete newModel[fieldName];
-
       setViewForm(prev => ({
           ...prev,
           calculatedFields: prev.calculatedFields.filter((_, i) => i !== idx),
           model: newModel
       }));
+  };
+
+  // --- NEW AI HANDLER ---
+  const handleGenerateSQL = async () => {
+      if (!nlQuery.trim()) return;
+      setIsGeneratingSQL(true);
+      
+      // Prepare schema context for AI
+      let schemaStr = "Generic Table (id, name, status, temperature, cpu...)";
+      if (effectiveStable && MOCK_TDENGINE_SCHEMA[effectiveStable]) {
+          const s = MOCK_TDENGINE_SCHEMA[effectiveStable];
+          schemaStr = `Super Table: ${effectiveStable}\nTags: ${s.tags.join(', ')}\nColumns: ${s.columns.join(', ')}`;
+      }
+
+      const generatedSQL = await generateSQLFromText(nlQuery, schemaStr);
+      setViewForm(prev => ({ ...prev, customSql: generatedSQL }));
+      setIsGeneratingSQL(false);
   };
 
   const handleSave = () => {
@@ -219,7 +237,7 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
       sourceId: viewForm.sourceId,
       tableName: viewForm.tableName,
       fields: viewForm.fields,
-      model: viewForm.model, // Save Model
+      model: viewForm.model,
       calculatedFields: viewForm.calculatedFields,
       filter: viewForm.filter,
       mode: viewForm.mode,
@@ -243,7 +261,6 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
     }
   };
 
-  // Combine source fields and calculated fields for metadata editing
   const allEditableFields = useMemo(() => {
       return [
           ...viewForm.fields, 
@@ -264,7 +281,7 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
              </button>
         )}
 
-        {/* 左侧：视图列表 (Collapsible Sidebar) */}
+        {/* ... (keep Sidebar code) ... */}
         <div className={`transition-all duration-300 ease-in-out flex-shrink-0 flex flex-col bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden ${isSidebarOpen ? 'w-80 opacity-100' : 'w-0 opacity-0 border-0 pointer-events-none'}`}>
             <div className="p-6 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center flex-shrink-0">
                 <h3 className="font-bold text-slate-800">视图资产</h3>
@@ -365,8 +382,8 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
             <div className="flex-1 overflow-y-auto custom-scrollbar space-y-6 pr-2">
                 
                 {viewForm.mode === 'GUI' ? (
+                    // ... (keep GUI mode content exactly as is)
                     <>
-                        {/* 1. 数据来源与过滤 (GUI) */}
                         <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm space-y-6 animate-in fade-in">
                             <div className="flex items-center gap-3 mb-2">
                                 <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-sm">1</div>
@@ -429,8 +446,9 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
                             </div>
                         </div>
 
-                        {/* 2. 字段映射 (GUI) - Enhanced UI */}
+                        {/* 2. Field Selection */}
                         <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm space-y-6 animate-in fade-in">
+                            {/* ... (keep GUI field selection) ... */}
                             <div className="flex justify-between items-center mb-2">
                                 <div className="flex items-center gap-3">
                                     <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-sm">2</div>
@@ -447,31 +465,18 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
                                     <svg className="w-3 h-3 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                                 </div>
                             </div>
-
-                            {/* Field Picker Tags */}
                             <div className="space-y-6">
                                 {Object.entries(activeFieldGroups).map(([category, fields]) => {
                                     const visibleFields = fields.filter(f => f.toLowerCase().includes(fieldSearchTerm.toLowerCase()));
                                     if (visibleFields.length === 0) return null;
-
                                     return (
                                         <div key={category} className="bg-slate-50/50 p-5 rounded-2xl border border-slate-100">
-                                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                                {category}
-                                            </h4>
+                                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">{category}</h4>
                                             <div className="flex flex-wrap gap-2">
                                                 {visibleFields.map(field => {
                                                     const isSelected = viewForm.fields.includes(field);
                                                     return (
-                                                        <button 
-                                                            key={field}
-                                                            onClick={() => handleToggleField(field)}
-                                                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 ${
-                                                                isSelected 
-                                                                ? 'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-200 hover:bg-indigo-700' 
-                                                                : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300 hover:text-indigo-600'
-                                                            }`}
-                                                        >
+                                                        <button key={field} onClick={() => handleToggleField(field)} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 ${isSelected ? 'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-200 hover:bg-indigo-700' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300 hover:text-indigo-600'}`}>
                                                             {field}
                                                             {isSelected && <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
                                                         </button>
@@ -484,45 +489,27 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
                             </div>
                         </div>
 
-                        {/* 3. 计算字段 (GUI) */}
+                        {/* 3. Calc Fields */}
                         <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm space-y-6 animate-in fade-in">
+                            {/* ... (keep calc fields) ... */}
                             <div className="flex items-center gap-3 mb-2">
                                 <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center font-black text-sm">3</div>
                                 <h3 className="font-bold text-slate-800">计算字段 (Calculated Fields)</h3>
                             </div>
-                            
                             <div className="bg-slate-50/50 p-6 rounded-2xl border border-slate-100">
                                 <div className="grid grid-cols-12 gap-4 items-end">
                                     <div className="col-span-3">
                                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Field Name</label>
-                                        <input 
-                                            type="text" 
-                                            value={newCalcField.name}
-                                            onChange={(e) => setNewCalcField({...newCalcField, name: e.target.value})}
-                                            placeholder="e.g. temp_f"
-                                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-400 font-bold text-xs"
-                                        />
+                                        <input type="text" value={newCalcField.name} onChange={(e) => setNewCalcField({...newCalcField, name: e.target.value})} placeholder="e.g. temp_f" className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-400 font-bold text-xs" />
                                     </div>
                                     <div className="col-span-7">
                                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Expression (JS Syntax)</label>
-                                        <input 
-                                            type="text" 
-                                            value={newCalcField.expression}
-                                            onChange={(e) => setNewCalcField({...newCalcField, expression: e.target.value})}
-                                            placeholder="e.g. temperature * 1.8 + 32"
-                                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-400 font-mono text-xs text-slate-600"
-                                        />
+                                        <input type="text" value={newCalcField.expression} onChange={(e) => setNewCalcField({...newCalcField, expression: e.target.value})} placeholder="e.g. temperature * 1.8 + 32" className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-400 font-mono text-xs text-slate-600" />
                                     </div>
                                     <div className="col-span-2">
-                                        <button 
-                                            onClick={handleAddCalculatedField}
-                                            className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold text-xs uppercase hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200"
-                                        >
-                                            Add Field
-                                        </button>
+                                        <button onClick={handleAddCalculatedField} className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold text-xs uppercase hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200">Add Field</button>
                                     </div>
                                 </div>
-
                                 {viewForm.calculatedFields.length > 0 && (
                                     <div className="mt-6 space-y-3">
                                         {viewForm.calculatedFields.map((field, idx) => (
@@ -532,9 +519,7 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
                                                     <span className="text-[10px] font-black text-slate-300">=</span>
                                                     <span className="text-xs font-mono text-slate-600">{field.expression}</span>
                                                 </div>
-                                                <button onClick={() => handleRemoveCalculatedField(idx)} className="text-slate-400 hover:text-rose-500">
-                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
-                                                </button>
+                                                <button onClick={() => handleRemoveCalculatedField(idx)} className="text-slate-400 hover:text-rose-500"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg></button>
                                             </div>
                                         ))}
                                     </div>
@@ -542,15 +527,16 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
                             </div>
                         </div>
 
-                        {/* 4. 语义模型配置 (Semantic Layer) */}
+                        {/* 4. Semantic Layer */}
                         {allEditableFields.length > 0 && (
                             <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm space-y-6 animate-in fade-in">
+                                {/* ... (keep semantic layer) ... */}
                                 <div className="flex items-center gap-3 mb-2">
                                     <div className="w-8 h-8 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center font-black text-sm">4</div>
                                     <h3 className="font-bold text-slate-800">语义模型配置 (Semantic Layer)</h3>
                                 </div>
-                                
                                 <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white">
+                                    {/* ... table content ... */}
                                     <div className="bg-slate-50 px-6 py-3 border-b border-slate-100 flex justify-between items-center">
                                         <h4 className="text-xs font-bold text-slate-700">字段属性定义</h4>
                                         <span className="text-[10px] text-slate-400 font-mono">{allEditableFields.length} Fields (Source + Calculated)</span>
@@ -628,12 +614,44 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
                         )}
                     </>
                 ) : (
-                    /* --- SQL MODE --- */
+                    /* --- SQL MODE (AI Enhanced) --- */
                     <div className="bg-slate-900 p-8 rounded-[32px] border border-slate-800 shadow-2xl space-y-6 h-full flex flex-col animate-in fade-in">
-                        <div className="flex items-center gap-3 mb-2">
-                             <div className="w-8 h-8 rounded-full bg-emerald-500 text-slate-900 flex items-center justify-center font-black text-sm text-lg">SQL</div>
-                             <h3 className="font-bold text-white">Advanced Query Editor</h3>
+                        <div className="flex items-center justify-between mb-2">
+                             <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-emerald-500 text-slate-900 flex items-center justify-center font-black text-sm text-lg">SQL</div>
+                                <h3 className="font-bold text-white">Advanced Query Editor</h3>
+                             </div>
+                             <div className="bg-slate-800/80 px-3 py-1 rounded-lg text-[10px] text-slate-400 font-bold uppercase backdrop-blur border border-white/10">
+                                {isTDengine ? 'TDengine SQL' : 'Standard SQL'}
+                            </div>
                         </div>
+
+                        {/* AI Generator Input */}
+                        <div className="bg-slate-800/50 p-4 rounded-2xl border border-slate-700/50 flex flex-col gap-3">
+                            <label className="text-[10px] font-black text-emerald-400 uppercase tracking-widest flex items-center gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                AI SQL Generator
+                            </label>
+                            <div className="flex gap-2">
+                                <input 
+                                    type="text" 
+                                    value={nlQuery}
+                                    onChange={(e) => setNlQuery(e.target.value)}
+                                    placeholder="e.g. Find sensors with temp > 80 in the last 2 hours..."
+                                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 outline-none focus:border-emerald-500/50 transition-all"
+                                    onKeyDown={(e) => e.key === 'Enter' && handleGenerateSQL()}
+                                />
+                                <button 
+                                    onClick={handleGenerateSQL}
+                                    disabled={isGeneratingSQL}
+                                    className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold text-xs uppercase hover:bg-emerald-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                >
+                                    {isGeneratingSQL ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>}
+                                    Generate
+                                </button>
+                            </div>
+                        </div>
+
                         <div className="flex-1 relative">
                             <textarea 
                                 value={viewForm.customSql}
@@ -641,22 +659,13 @@ export const ViewPage: React.FC<ViewPageProps> = ({ dataViews, dataSources, onSa
                                 className="w-full h-full bg-slate-950 text-emerald-400 font-mono text-sm p-6 rounded-2xl border border-slate-800 outline-none focus:border-emerald-500/50 resize-none leading-relaxed"
                                 spellCheck={false}
                             />
-                            <div className="absolute top-4 right-4 bg-slate-800/80 px-3 py-1 rounded-lg text-[10px] text-slate-400 font-bold uppercase backdrop-blur border border-white/10">
-                                {isTDengine ? 'TDengine SQL' : 'Standard SQL'}
-                            </div>
-                        </div>
-                        <div className="bg-slate-800/50 p-4 rounded-xl text-xs text-slate-400 flex items-start gap-2">
-                            <svg className="w-4 h-4 text-emerald-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                            <p>
-                                The extracted columns will automatically populate the "Fields" list for use in charts.
-                                <br/><span className="text-slate-500">Current Extracted Fields: <span className="font-mono text-emerald-400">{viewForm.fields.join(', ')}</span></span>
-                            </p>
                         </div>
                     </div>
                 )}
 
-                {/* 4. 实时预览 (Always Visible) - Now visually Step 5? Or just Preview */}
+                {/* 4. 实时预览 (Always Visible) */}
                 <div className="bg-slate-900 rounded-[32px] p-8 shadow-2xl space-y-6">
+                    {/* ... (keep preview) ... */}
                     <div className="flex items-center gap-3">
                         <div className="flex gap-1.5">
                             <div className="w-2.5 h-2.5 rounded-full bg-rose-500"></div>

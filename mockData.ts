@@ -2,7 +2,7 @@
 // ... imports ...
 import { Device, DeviceType, DeviceStatus, DataSource, DataView, ChartConfig, Dashboard, DeviceCategory, MenuItem, CustomPage, ShareToken } from './types';
 
-// ... (keep generateMetrics, MOCK_TDENGINE_SCHEMA, MOCK_CATEGORIES, MOCK_DEVICES, BI_SOURCES) ...
+// ... (keep generateMetrics, MOCK_TDENGINE_SCHEMA, MOCK_CATEGORIES, MOCK_DEVICES) ...
 const generateMetrics = (label: string, base: number, variance: number, count: number = 20) => {
   return Array.from({ length: count }).map((_, i) => ({
     timestamp: new Date(Date.now() - (count - i) * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -296,6 +296,7 @@ export const MOCK_DEVICES: Device[] = [
   }
 ];
 
+// --- MOCK DATA SOURCES ---
 export const BI_SOURCES: DataSource[] = [
   { id: 'src-1', name: 'IoT 实时 API', type: 'API', config: 'https://api.aurasense.io/v1' },
   { 
@@ -310,6 +311,66 @@ export const BI_SOURCES: DataSource[] = [
       db: 'hlzg_db',
       stable: 'st_gateway' 
     })
+  },
+  // --- New Mock Sources ---
+  {
+      id: 'src-mqtt-prod',
+      name: '车间 MQTT Broker',
+      type: 'MQTT',
+      config: JSON.stringify({
+          brokerUrl: 'wss://broker.emqx.io:8084/mqtt',
+          port: '8084',
+          topic: 'factory/line1/+/telemetry',
+          clientId: 'aura_web_client_01',
+          username: 'readonly',
+          password: '***'
+      })
+  },
+  {
+      id: 'src-influx-hist',
+      name: '历史归档 (InfluxDB)',
+      type: 'InfluxDB',
+      config: JSON.stringify({
+          url: 'http://influxdb.internal:8086',
+          org: 'production_ops',
+          bucket: 'sensor_metrics_v2',
+          token: 'sk-mock-token-abc-123'
+      })
+  },
+  {
+      id: 'src-oracle-erp',
+      name: 'ERP 业务库 (Oracle)',
+      type: 'Oracle',
+      config: JSON.stringify({
+          host: '192.168.10.50',
+          port: '1521',
+          sid: 'ORCL_PROD',
+          user: 'REPORT_READER',
+          password: '***'
+      })
+  },
+  {
+      id: 'src-kafka-stream',
+      name: '实时事件流 (Kafka)',
+      type: 'Kafka',
+      config: JSON.stringify({
+          bootstrapServers: '10.0.0.5:9092,10.0.0.6:9092',
+          topic: 'device_alarms_v1',
+          groupId: 'aura_dashboard_consumer'
+      })
+  },
+  {
+      id: 'src-sqlserver-mes',
+      name: 'MES 生产系统 (SQL Server)',
+      type: 'SQLServer',
+      config: JSON.stringify({
+          host: '192.168.10.60',
+          port: '1433',
+          db: 'MES_Core_DB',
+          user: 'sa',
+          password: '***',
+          instance: 'MSSQLSERVER'
+      })
   }
 ];
 
@@ -603,7 +664,7 @@ export const INITIAL_MENU_CONFIG: MenuItem[] = [
         icon: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4',
         children: [
             { id: 'menu_dat_1', label: '数据源配置', icon: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4', type: 'PAGE', targetType: 'system_page', targetId: 'source' },
-            { id: 'menu_dat_2', label: '数据视图定义', icon: 'M9 17v-2a2 2 0 00-2-2H5a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2zm3-2a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zm-9-8a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H5a2 2 0 01-2-2V7zm12 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2 2V7z', type: 'PAGE', targetType: 'system_page', targetId: 'view' },
+            { id: 'menu_dat_2', label: '数据视图定义', icon: 'M9 17v-2a2 2 0 00-2-2H5a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2zm3-2a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zm-9-8a2 2 0 012-2h2a2 2 0 01-2 2H5a2 2 0 01-2-2V7zm12 0a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2 2V7z', type: 'PAGE', targetType: 'system_page', targetId: 'view' },
             { id: 'menu_dat_3', label: '图表实验室', icon: 'M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z', type: 'PAGE', targetType: 'system_page', targetId: 'chart' },
             { id: 'menu_dat_4', label: '看板配置', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z', type: 'PAGE', targetType: 'system_page', targetId: 'dashboard_manage' },
             { id: 'menu_sys_pages', label: '页面配置', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', type: 'PAGE', targetType: 'system_page', targetId: 'page_config' }, 
@@ -642,4 +703,3 @@ export const MOCK_SHARE_TOKENS: ShareToken[] = [
         password: 'secure'
     }
 ];
-    

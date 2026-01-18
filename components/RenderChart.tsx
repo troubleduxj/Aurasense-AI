@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState, useEffect } from 'react';
 import * as echarts from 'echarts';
 import { ChartConfig, Device, ChartInteractionPayload, DataView, DashboardFilterState, AggregationType, FormatConfig, ThresholdRule, ReferenceLine } from '../types';
@@ -903,7 +902,7 @@ export const RenderChart: React.FC<RenderChartProps> = ({ chart, devices, dataVi
                               theme={theme}
                               onRowClick={(row) => onInteract?.({ name: 'row_click', value: 0, series: 'table', row })}
                               onPageSizeChange={(size) => onInteract?.({ name: 'resize', value: size, dimensionKey: 'pageSize', series: chart.id })} // Bubble up resize event
-                              onActionClick={(actionId, row) => onInteract?.({ name: 'action_click', value: 0, series: actionId, row, actionId })} // Pass action click
+                              onActionClick={(actionId, row) => onInteract?.({ name: 'action_click', value: 0, series: actionId, row })} // Pass action click
                               onColumnResize={(col, width) => console.log('Resized:', col, width)} // Could save to chart config
                           />
                       )}
