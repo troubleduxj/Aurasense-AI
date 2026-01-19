@@ -3,28 +3,32 @@ import React, { useState, useMemo } from 'react';
 import { Device, DeviceStatus, DiagnosticReport, DeviceCategory, MetricConfig } from '../types';
 import { getDeviceDiagnostic } from '../geminiService';
 import { jsPDF } from "jspdf";
-import { resolveMetricMetadata } from '../constants'; // Use the new helper
+import { resolveMetricMetadata } from '../constants';
+import { Button } from '../components/ui/Button';
+import { Card } from '../components/ui/Card';
+import { Input, Select } from '../components/ui/Input';
+import { Badge } from '../components/ui/Badge';
+import { Modal } from '../components/ui/Modal';
 
 interface MonitorPageProps {
   devices: Device[];
   categories: DeviceCategory[];
-  metricConfig: MetricConfig; // Receive dynamic config
+  metricConfig: MetricConfig;
 }
 
-const getStatusColor = (status: DeviceStatus) => {
-  switch (status) {
-    case DeviceStatus.ONLINE: return 'bg-emerald-500';
-    case DeviceStatus.WARNING: return 'bg-amber-500';
-    case DeviceStatus.CRITICAL: return 'bg-rose-500';
-    default: return 'bg-slate-400';
-  }
+const getStatusVariant = (status: DeviceStatus) => {
+    switch (status) {
+      case DeviceStatus.ONLINE: return 'success';
+      case DeviceStatus.WARNING: return 'warning';
+      case DeviceStatus.CRITICAL: return 'danger';
+      default: return 'neutral';
+    }
 };
 
 const MiniSparkline = ({ data, color }: { data: number[], color: string }) => {
-  // If no data, render placeholder
-  if (!data || data.length === 0) return <div className="w-full h-8 bg-slate-50 rounded"></div>;
+  if (!data || data.length === 0) return <div className="w-full h-8 bg-slate-50 rounded-lg"></div>;
   
-  const max = Math.max(...data) * 1.1 || 100; // Add 10% buffer or default to 100
+  const max = Math.max(...data) * 1.1 || 100;
   const min = 0;
   const range = max - min;
   
@@ -59,7 +63,6 @@ export const MonitorPage: React.FC<MonitorPageProps> = ({ devices, categories, m
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Only find the device if selectedDeviceId is set (Modal Logic)
   const selectedDevice = useMemo(() => 
     selectedDeviceId ? devices.find(d => d.id === selectedDeviceId) : null, 
   [devices, selectedDeviceId]);
@@ -88,9 +91,7 @@ export const MonitorPage: React.FC<MonitorPageProps> = ({ devices, categories, m
 
   const handleExportPDF = () => {
       if (!selectedDevice || !diagnosticReport) return;
-
       const doc = new jsPDF();
-      // ... (Same PDF logic as before) ...
       doc.setFontSize(20);
       doc.text("AI Diagnostic Report", 20, 20);
       doc.setFontSize(10);
@@ -145,9 +146,6 @@ export const MonitorPage: React.FC<MonitorPageProps> = ({ devices, categories, m
           doc.text(`• ${rec}`, 20, currentY);
           currentY += 6;
       });
-      doc.setFontSize(8);
-      doc.setTextColor(150);
-      doc.text("Confidential - Internal Use Only", 105, 280, { align: "center" });
       doc.save(`AuraSense_Report_${selectedDevice.id}_${Date.now()}.pdf`);
   };
 
@@ -159,88 +157,90 @@ export const MonitorPage: React.FC<MonitorPageProps> = ({ devices, categories, m
 
   return (
     <div className="flex flex-col h-full space-y-6">
-      {/* Filter Bar (Same as before) */}
-      <div className="flex flex-col xl:flex-row justify-between xl:items-center bg-white p-4 rounded-3xl border border-slate-100 shadow-sm gap-4 flex-shrink-0">
+      {/* Filter Bar */}
+      <Card className="flex flex-col xl:flex-row justify-between xl:items-center gap-4 p-4 flex-shrink-0">
           <div className="flex flex-col md:flex-row md:items-center gap-4 flex-1">
               <div>
                   <h3 className="text-lg font-black text-slate-800">全域设备监控</h3>
                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Global Device Monitoring</p>
               </div>
               <div className="hidden md:block w-px h-8 bg-slate-100"></div>
-              <div className="relative flex-1 max-w-sm">
-                  <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="搜索设备名称 / IP / ID..." className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 transition-all placeholder-slate-400" />
-                  <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+              <div className="flex-1 max-w-sm">
+                  <Input 
+                    value={searchQuery} 
+                    onChange={(e) => setSearchQuery(e.target.value)} 
+                    placeholder="搜索设备名称 / IP / ID..." 
+                    icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>}
+                    className="py-2.5 text-xs"
+                  />
               </div>
-              <div className="relative w-48">
-                  <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="w-full pl-4 pr-8 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold text-slate-700 outline-none appearance-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 cursor-pointer">
-                      <option value="ALL">所有设备分类</option>
-                      {categories.map(cat => (
-                          <option key={cat.id} value={cat.id}>{cat.name}</option>
-                      ))}
-                  </select>
-                  <svg className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" /></svg>
+              <div className="w-48">
+                  <Select 
+                    value={categoryFilter} 
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    className="py-2.5 text-xs"
+                    options={[
+                        { label: '所有设备分类', value: 'ALL' },
+                        ...categories.map(cat => ({ label: cat.name, value: cat.id }))
+                    ]}
+                  />
               </div>
           </div>
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
-            <button onClick={() => setStatusFilter('ALL')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all border whitespace-nowrap ${statusFilter === 'ALL' ? 'bg-slate-800 border-slate-800 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:bg-slate-50'}`}>All Status</button>
+            <Button 
+                variant={statusFilter === 'ALL' ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => setStatusFilter('ALL')}
+                className={statusFilter === 'ALL' ? 'bg-slate-800 text-white border-slate-800 shadow-md' : ''}
+            >
+                All Status
+            </Button>
             {Object.values(DeviceStatus).map(s => (
-                 <button key={s} onClick={() => setStatusFilter(s)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all border whitespace-nowrap flex items-center gap-2 ${statusFilter === s ? 'bg-slate-800 border-slate-800 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:bg-slate-50'}`}>
-                     <div className={`w-1.5 h-1.5 rounded-full ${getStatusColor(s)}`}></div>
+                 <Button 
+                    key={s} 
+                    variant={statusFilter === s ? 'primary' : 'secondary'}
+                    size="sm"
+                    onClick={() => setStatusFilter(s)} 
+                    className={statusFilter === s ? 'bg-slate-800 text-white border-slate-800 shadow-md' : ''}
+                 >
+                     <div className={`w-1.5 h-1.5 rounded-full mr-2 ${s === DeviceStatus.ONLINE ? 'bg-emerald-400' : s === DeviceStatus.WARNING ? 'bg-amber-400' : 'bg-rose-400'}`}></div>
                      {s}
-                 </button>
+                 </Button>
              ))}
           </div>
-      </div>
+      </Card>
 
       {/* --- Device Grid List --- */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-1">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {filteredDevices.map(device => {
-                // Find Category Definition
                 const category = categories.find(c => c.id === device.categoryId);
-                
-                // --- INTELLIGENT METRIC SELECTION LOGIC ---
-                // 1. Get defined metrics from Category (schema source of truth)
-                // Filter out 'ts' as it is not a display metric
                 const definedMetrics = category?.metricDefinitions?.filter(m => m !== 'ts') || [];
-                // 2. Get available runtime metrics
                 const runtimeMetrics = Object.keys(device.metrics);
                 
-                // 3. Resolve Primary Key
                 let primaryKey = category?.defaultDisplayMetric;
-                
-                // If default is not valid (not defined or no data), fall back to first defined metric
                 if (!primaryKey || !runtimeMetrics.includes(primaryKey)) {
                     primaryKey = definedMetrics.find(k => runtimeMetrics.includes(k));
                 }
-                // If still no primary, fall back to any available runtime metric
-                if (!primaryKey) {
-                    primaryKey = runtimeMetrics[0];
-                }
+                if (!primaryKey) primaryKey = runtimeMetrics[0];
                 
-                // 4. Resolve Secondary Key (Next defined metric that isn't primary)
                 let secondaryKey = definedMetrics.find(k => k !== primaryKey && runtimeMetrics.includes(k));
-                // Fallback
-                if (!secondaryKey) {
-                    secondaryKey = runtimeMetrics.find(k => k !== primaryKey);
-                }
+                if (!secondaryKey) secondaryKey = runtimeMetrics.find(k => k !== primaryKey);
                 
                 const primaryMetric = primaryKey ? device.metrics[primaryKey] : [];
-                // PASS DEVICE TYPE FOR RESOLUTION
                 const primaryConfig = resolveMetricMetadata(metricConfig, primaryKey, device.type);
                 
                 const secondaryMetric = secondaryKey ? device.metrics[secondaryKey] : [];
-                // PASS DEVICE TYPE FOR RESOLUTION
                 const secondaryConfig = resolveMetricMetadata(metricConfig, secondaryKey, device.type);
 
                 return (
-                    <div key={device.id} onClick={() => setSelectedDeviceId(device.id)} className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 hover:border-indigo-200 transition-all cursor-pointer group relative overflow-hidden">
-                        <div className={`absolute top-0 left-0 right-0 h-1.5 ${getStatusColor(device.status)} opacity-80`}></div>
+                    <Card key={device.id} hoverEffect onClick={() => setSelectedDeviceId(device.id)} className="relative overflow-hidden group">
+                        <div className={`absolute top-0 left-0 right-0 h-1.5 opacity-80 ${device.status === DeviceStatus.ONLINE ? 'bg-emerald-500' : device.status === DeviceStatus.WARNING ? 'bg-amber-500' : device.status === DeviceStatus.CRITICAL ? 'bg-rose-500' : 'bg-slate-400'}`}></div>
                         <div className="flex justify-between items-start mb-5 mt-2">
                             <div>
                                 <h4 className="font-bold text-slate-800 text-lg mb-1">{device.name}</h4>
                                 <div className="flex items-center gap-2">
-                                    <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold uppercase">{device.type}</span>
+                                    <Badge variant="neutral">{device.type}</Badge>
                                     <span className="text-[10px] font-mono text-slate-400">{device.ip}</span>
                                 </div>
                             </div>
@@ -273,7 +273,7 @@ export const MonitorPage: React.FC<MonitorPageProps> = ({ devices, categories, m
                                 </div>
                             )}
                         </div>
-                    </div>
+                    </Card>
                 );
             })}
             {filteredDevices.length === 0 && (
@@ -286,91 +286,97 @@ export const MonitorPage: React.FC<MonitorPageProps> = ({ devices, categories, m
       </div>
 
       {/* --- Detail Modal --- */}
-      {selectedDevice && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-md animate-in fade-in duration-300">
-             <div className="bg-white rounded-[40px] shadow-2xl border border-white/40 w-full max-w-5xl h-[90vh] overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col relative">
-                <div className="p-8 border-b border-slate-100 bg-slate-50/50 flex justify-between items-start flex-shrink-0">
-                    <div>
-                        <div className="flex items-center gap-3 mb-2">
-                            <h3 className="text-2xl font-black text-slate-800">{selectedDevice.name}</h3>
-                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider text-white ${getStatusColor(selectedDevice.status)}`}>{selectedDevice.status}</span>
-                        </div>
-                        <div className="flex items-center gap-4 text-xs font-medium text-slate-500">
-                            <span className="flex items-center gap-1"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg> {selectedDevice.location}</span>
-                            <span className="flex items-center gap-1"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg> {selectedDevice.id}</span>
-                            <span className="font-mono bg-slate-100 px-1.5 rounded text-slate-400">{selectedDevice.ip}</span>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                         <button onClick={handleAnalyze} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-xs hover:bg-indigo-700 transition-all shadow-lg hover:shadow-indigo-200 flex items-center gap-2">
-                            {isAnalyzing ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>}
-                            {isAnalyzing ? 'Analyzing...' : 'AI Diagnostic'}
-                        </button>
-                        {diagnosticReport && !isAnalyzing && (
-                            <button onClick={handleExportPDF} className="px-5 py-2.5 bg-rose-50 text-rose-600 rounded-xl font-bold text-xs hover:bg-rose-100 transition-all border border-rose-100 flex items-center gap-2 animate-in fade-in zoom-in"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>Export PDF</button>
-                        )}
-                        <button onClick={handleCloseModal} className="p-2.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg></button>
-                    </div>
+      <Modal
+        isOpen={!!selectedDevice}
+        onClose={handleCloseModal}
+        title={selectedDevice?.name || ''}
+        subtitle="Device Diagnostic & Details"
+        size="xl"
+        footer={
+            <div className="flex justify-end gap-3 w-full">
+                {diagnosticReport && !isAnalyzing && (
+                    <Button variant="secondary" onClick={handleExportPDF} icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}>
+                        Export PDF
+                    </Button>
+                )}
+                <Button 
+                    variant="primary" 
+                    onClick={handleAnalyze} 
+                    disabled={isAnalyzing}
+                    icon={isAnalyzing ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>}
+                >
+                    {isAnalyzing ? 'Analyzing...' : 'AI Diagnostic'}
+                </Button>
+            </div>
+        }
+      >
+        {selectedDevice && (
+            <div className="space-y-6">
+                {/* Meta Info */}
+                <div className="flex items-center gap-4 text-xs font-medium text-slate-500 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                    <span className="flex items-center gap-1"><Badge variant={getStatusVariant(selectedDevice.status)} dot>{selectedDevice.status}</Badge></span>
+                    <span className="flex items-center gap-1"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg> {selectedDevice.location}</span>
+                    <span className="flex items-center gap-1"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg> {selectedDevice.id}</span>
+                    <span className="font-mono bg-white px-2 py-0.5 rounded border border-slate-200 text-slate-600">{selectedDevice.ip}</span>
                 </div>
 
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-8 bg-slate-50/30">
-                    {diagnosticReport && (
-                        <div className="mb-8 p-6 bg-gradient-to-br from-indigo-50 to-white rounded-[24px] border border-indigo-100 animate-in fade-in slide-in-from-top-4 shadow-sm">
-                             <div className="flex items-center gap-2 mb-3">
-                                 <span className="text-xs font-black text-indigo-500 uppercase tracking-widest">Gemini Insight</span>
-                                 <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${diagnosticReport.status === 'Healthy' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>{diagnosticReport.status}</span>
-                             </div>
-                             <p className="text-sm text-slate-700 leading-relaxed font-medium mb-4">{diagnosticReport.summary}</p>
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                 <div className="bg-white p-4 rounded-xl border border-slate-100">
-                                     <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Recommendations</h5>
-                                     <ul className="list-disc list-inside text-xs text-slate-600 space-y-1">
-                                         {diagnosticReport.recommendations.map((rec, i) => <li key={i}>{rec}</li>)}
-                                     </ul>
-                                 </div>
-                                 <div className="bg-white p-4 rounded-xl border border-slate-100">
-                                     <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Anomalies Detected</h5>
-                                     <ul className="list-disc list-inside text-xs text-slate-600 space-y-1">
-                                         {diagnosticReport.anomaliesFound.length > 0 ? diagnosticReport.anomaliesFound.map((rec, i) => <li key={i}>{rec}</li>) : <li>None detected</li>}
-                                     </ul>
-                                 </div>
-                             </div>
-                        </div>
-                    )}
+                {/* AI Report */}
+                {diagnosticReport && (
+                    <div className="p-6 bg-gradient-to-br from-indigo-50 to-white rounded-[24px] border border-indigo-100 animate-in fade-in slide-in-from-top-4 shadow-sm">
+                            <div className="flex items-center gap-2 mb-3">
+                                <span className="text-xs font-black text-indigo-500 uppercase tracking-widest">Gemini Insight</span>
+                                <Badge variant={diagnosticReport.status === 'Healthy' ? 'success' : 'danger'} dot>{diagnosticReport.status}</Badge>
+                            </div>
+                            <p className="text-sm text-slate-700 leading-relaxed font-medium mb-4">{diagnosticReport.summary}</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="bg-white p-4 rounded-xl border border-slate-100">
+                                    <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Recommendations</h5>
+                                    <ul className="list-disc list-inside text-xs text-slate-600 space-y-1">
+                                        {diagnosticReport.recommendations.map((rec, i) => <li key={i}>{rec}</li>)}
+                                    </ul>
+                                </div>
+                                <div className="bg-white p-4 rounded-xl border border-slate-100">
+                                    <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Anomalies Detected</h5>
+                                    <ul className="list-disc list-inside text-xs text-slate-600 space-y-1">
+                                        {diagnosticReport.anomaliesFound.length > 0 ? diagnosticReport.anomaliesFound.map((rec, i) => <li key={i}>{rec}</li>) : <li>None detected</li>}
+                                    </ul>
+                                </div>
+                            </div>
+                    </div>
+                )}
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {Object.entries(selectedDevice.metrics).map(([key, history]) => {
-                            // PASS DEVICE TYPE FOR RESOLUTION
-                            const config = resolveMetricMetadata(metricConfig, key, selectedDevice.type);
-                            const latestVal = history.length > 0 ? history[history.length - 1].value : 0;
-                            const prevVal = history.length > 1 ? history[history.length - 2].value : latestVal;
-                            const isRising = latestVal > prevVal;
+                {/* Charts Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {Object.entries(selectedDevice.metrics).map(([key, history]) => {
+                        const config = resolveMetricMetadata(metricConfig, key, selectedDevice.type);
+                        const latestVal = history.length > 0 ? history[history.length - 1].value : 0;
+                        const prevVal = history.length > 1 ? history[history.length - 2].value : latestVal;
+                        const isRising = latestVal > prevVal;
 
-                            return (
-                                <div key={key} className="bg-white p-6 rounded-[24px] border border-slate-100 shadow-sm hover:border-indigo-100 transition-all group">
-                                    <div className="flex justify-between items-start mb-4">
-                                        <div>
-                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{config.label}</p>
-                                            <div className="flex items-baseline gap-1 mt-1">
-                                                <span className="text-3xl font-black text-slate-800 tracking-tight">{latestVal}</span>
-                                                <span className="text-xs font-bold text-slate-400">{config.unit}</span>
-                                            </div>
-                                        </div>
-                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isRising ? 'bg-rose-50 text-rose-500' : 'bg-emerald-50 text-emerald-500'}`}>
-                                            <svg className={`w-5 h-5 transform ${isRising ? '-rotate-45' : 'rotate-45'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                        return (
+                            <div key={key} className="bg-white p-6 rounded-[24px] border border-slate-100 shadow-sm hover:border-indigo-100 transition-all group">
+                                <div className="flex justify-between items-start mb-4">
+                                    <div>
+                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{config.label}</p>
+                                        <div className="flex items-baseline gap-1 mt-1">
+                                            <span className="text-3xl font-black text-slate-800 tracking-tight">{latestVal}</span>
+                                            <span className="text-xs font-bold text-slate-400">{config.unit}</span>
                                         </div>
                                     </div>
-                                    <div className="h-16 w-full">
-                                        <MiniSparkline data={history.map(d => d.value)} color={config.color} />
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isRising ? 'bg-rose-50 text-rose-500' : 'bg-emerald-50 text-emerald-500'}`}>
+                                        <svg className={`w-5 h-5 transform ${isRising ? '-rotate-45' : 'rotate-45'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
                                     </div>
                                 </div>
-                            );
-                        })}
-                    </div>
+                                <div className="h-16 w-full">
+                                    <MiniSparkline data={history.map(d => d.value)} color={config.color} />
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
-             </div>
-          </div>
-      )}
+            </div>
+        )}
+      </Modal>
     </div>
   );
 };

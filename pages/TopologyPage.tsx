@@ -1,6 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Device, ScadaNode, ScadaNodeType, ScadaBinding } from '../types';
+import { Device, ScadaNode, ScadaNodeType } from '../types';
+import { Button } from '../components/ui/Button';
+import { Card } from '../components/ui/Card';
+import { Input, Select } from '../components/ui/Input';
 
 interface TopologyPageProps {
     nodes: ScadaNode[];
@@ -23,12 +26,10 @@ export const TopologyPage: React.FC<TopologyPageProps> = ({ nodes, setNodes, dev
     const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
     const canvasRef = useRef<HTMLDivElement>(null);
 
-    // Initial Palette Drag
     const handleDragStart = (e: React.DragEvent, type: ScadaNodeType) => {
         e.dataTransfer.setData('nodeType', type);
     };
 
-    // Drop on Canvas (Create New)
     const handleDrop = (e: React.DragEvent) => {
         e.preventDefault();
         if (mode !== 'edit') return;
@@ -39,8 +40,7 @@ export const TopologyPage: React.FC<TopologyPageProps> = ({ nodes, setNodes, dev
         const rect = canvasRef.current?.getBoundingClientRect();
         if (!rect) return;
 
-        // Calculate Position relative to canvas
-        const x = Math.round((e.clientX - rect.left) / 20) * 20; // Snap to 20
+        const x = Math.round((e.clientX - rect.left) / 20) * 20; 
         const y = Math.round((e.clientY - rect.top) / 20) * 20;
 
         const newNode: ScadaNode = {
@@ -60,7 +60,6 @@ export const TopologyPage: React.FC<TopologyPageProps> = ({ nodes, setNodes, dev
 
     const handleCanvasDragOver = (e: React.DragEvent) => e.preventDefault();
 
-    // Internal Dragging Logic (Move Existing)
     const handleMouseDown = (e: React.MouseEvent, id: string) => {
         if (mode !== 'edit') return;
         e.stopPropagation();
@@ -74,7 +73,6 @@ export const TopologyPage: React.FC<TopologyPageProps> = ({ nodes, setNodes, dev
         const rect = canvasRef.current?.getBoundingClientRect();
         if (!rect) return;
 
-        // Simple drag follow (center snap)
         const x = Math.max(0, Math.round((e.clientX - rect.left - 20) / 20) * 20);
         const y = Math.max(0, Math.round((e.clientY - rect.top - 20) / 20) * 20);
 
@@ -94,9 +92,7 @@ export const TopologyPage: React.FC<TopologyPageProps> = ({ nodes, setNodes, dev
 
     const selectedNode = nodes.find(n => n.id === selectedNodeId);
 
-    // --- Renderer ---
     const renderNode = (node: ScadaNode) => {
-        // Resolve Binding Value
         let displayValue = 0;
         let bindingActive = false;
 
@@ -113,27 +109,22 @@ export const TopologyPage: React.FC<TopologyPageProps> = ({ nodes, setNodes, dev
 
         const isSelected = selectedNodeId === node.id && mode === 'edit';
         
-        // Common Props
         const groupProps = {
             transform: `translate(${node.x}, ${node.y}) rotate(${node.rotation || 0} ${node.w/2} ${node.h/2})`,
             onMouseDown: (e: React.MouseEvent) => handleMouseDown(e, node.id),
-            // FIX: Stop propagation on click to prevent canvas from clearing selection immediately
             onClick: (e: React.MouseEvent) => e.stopPropagation(),
             style: { cursor: mode === 'edit' ? 'move' : 'default' }
         };
 
-        // Render shapes based on Type
         switch (node.type) {
             case 'tank':
-                // Tank logic: inner rect height depends on binding 'level'
                 const fillHeight = bindingActive && node.binding?.targetProp === 'level' 
                     ? Math.min(100, Math.max(0, (displayValue / (node.binding.max || 100)) * 100)) 
-                    : 50; // default 50%
+                    : 50;
                 
                 return (
                     <g {...groupProps}>
                         <rect width={node.w} height={node.h} rx="4" fill="white" stroke="#94a3b8" strokeWidth="2" />
-                        {/* Liquid Level */}
                         <rect 
                             x="2" 
                             y={node.h - (node.h * fillHeight / 100) - 2} 
@@ -143,7 +134,6 @@ export const TopologyPage: React.FC<TopologyPageProps> = ({ nodes, setNodes, dev
                             rx="2"
                             className="transition-all duration-500 ease-in-out"
                         />
-                        {/* Scale lines */}
                         <line x1={node.w} y1={node.h * 0.25} x2={node.w - 5} y2={node.h * 0.25} stroke="#cbd5e1" />
                         <line x1={node.w} y1={node.h * 0.5} x2={node.w - 8} y2={node.h * 0.5} stroke="#cbd5e1" />
                         <line x1={node.w} y1={node.h * 0.75} x2={node.w - 5} y2={node.h * 0.75} stroke="#cbd5e1" />
@@ -153,7 +143,7 @@ export const TopologyPage: React.FC<TopologyPageProps> = ({ nodes, setNodes, dev
                 );
             case 'pump':
                 const pumpColor = bindingActive && node.binding?.targetProp === 'fill' 
-                    ? (displayValue > 0 ? '#22c55e' : '#ef4444') // Green if >0 (running), Red if 0
+                    ? (displayValue > 0 ? '#22c55e' : '#ef4444') 
                     : '#94a3b8';
                 
                 return (
@@ -165,12 +155,10 @@ export const TopologyPage: React.FC<TopologyPageProps> = ({ nodes, setNodes, dev
                     </g>
                 );
             case 'pipe':
-                // Flow animation class if binding active
                 const isFlowing = mode === 'run' && bindingActive && displayValue > 0;
                 return (
                     <g {...groupProps}>
                         <rect width={node.w} height={node.h} fill="#e2e8f0" stroke="#cbd5e1" />
-                        {/* Animated Overlay for flow */}
                         {isFlowing && (
                             <line x1="0" y1={node.h/2} x2={node.w} y2={node.h/2} stroke={node.fill || '#6366f1'} strokeWidth={node.h/2} strokeDasharray="10 5" className="scada-flow-anim" />
                         )}
@@ -212,9 +200,9 @@ export const TopologyPage: React.FC<TopologyPageProps> = ({ nodes, setNodes, dev
 
     return (
         <div className="flex h-[calc(100vh-140px)] gap-4">
-            {/* Left: Palette (Only in Edit Mode) */}
+            {/* Left: Palette */}
             {mode === 'edit' && (
-                <div className="w-48 bg-white rounded-[32px] border border-slate-100 shadow-sm p-4 flex flex-col gap-3 overflow-y-auto animate-in slide-in-from-left-4">
+                <Card className="w-48 p-4 flex flex-col gap-3 overflow-y-auto animate-in slide-in-from-left-4">
                     <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 px-2">Component Palette</h3>
                     {PALETTE_ITEMS.map(item => (
                         <div 
@@ -227,35 +215,38 @@ export const TopologyPage: React.FC<TopologyPageProps> = ({ nodes, setNodes, dev
                             <span className="text-xs font-bold text-slate-600">{item.label}</span>
                         </div>
                     ))}
-                </div>
+                </Card>
             )}
 
             {/* Center: Canvas */}
             <div className="flex-1 flex flex-col gap-4">
                 {/* Toolbar */}
-                <div className="bg-white p-2 rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center px-4">
+                <Card className="p-2 flex justify-between items-center px-4">
                     <div className="flex items-center gap-2">
-                        <button 
+                        <Button 
+                            variant={mode === 'edit' ? 'primary' : 'secondary'}
+                            size="sm"
                             onClick={() => setMode('edit')}
-                            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase transition-all flex items-center gap-2 ${mode === 'edit' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>}
                         >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                             Edit
-                        </button>
-                        <button 
+                        </Button>
+                        <Button 
+                            variant={mode === 'run' ? 'success' : 'secondary'}
+                            size="sm"
+                            className={mode === 'run' ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : ''}
                             onClick={() => { setMode('run'); setSelectedNodeId(null); }}
-                            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase transition-all flex items-center gap-2 ${mode === 'run' ? 'bg-emerald-500 text-white shadow-md' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
                         >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                             Run Monitor
-                        </button>
+                        </Button>
                     </div>
                     {mode === 'edit' && (
                         <div className="text-[10px] font-mono text-slate-400">
                             Grid Snap: 20px | {nodes.length} Objects
                         </div>
                     )}
-                </div>
+                </Card>
 
                 {/* SVG Area */}
                 <div 
@@ -277,132 +268,93 @@ export const TopologyPage: React.FC<TopologyPageProps> = ({ nodes, setNodes, dev
                 </div>
             </div>
 
-            {/* Right: Property Panel (Only in Edit Mode and Selection) */}
+            {/* Right: Property Panel */}
             {mode === 'edit' && selectedNode && (
-                <div className="w-72 bg-white rounded-[32px] border border-slate-100 shadow-xl p-6 overflow-y-auto animate-in slide-in-from-right-4">
+                <Card className="w-72 p-6 overflow-y-auto animate-in slide-in-from-right-4">
                     <div className="flex justify-between items-center mb-6">
                         <h3 className="text-sm font-black text-slate-800">Properties</h3>
-                        <button onClick={handleDeleteNode} className="text-rose-500 hover:bg-rose-50 p-2 rounded-lg transition-colors">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                        </button>
+                        <Button size="sm" variant="danger" className="p-2" onClick={handleDeleteNode} icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>} />
                     </div>
 
                     <div className="space-y-6">
-                        {/* Geometry */}
                         <div>
                             <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Geometry</label>
                             <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="text-[9px] text-slate-400 font-bold block mb-1">X</label>
-                                    <input type="number" value={selectedNode.x} onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, x: parseInt(e.target.value) } : n))} className="w-full px-3 py-2 bg-slate-50 rounded-lg text-xs font-bold border-none outline-none" />
-                                </div>
-                                <div>
-                                    <label className="text-[9px] text-slate-400 font-bold block mb-1">Y</label>
-                                    <input type="number" value={selectedNode.y} onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, y: parseInt(e.target.value) } : n))} className="w-full px-3 py-2 bg-slate-50 rounded-lg text-xs font-bold border-none outline-none" />
-                                </div>
-                                <div>
-                                    <label className="text-[9px] text-slate-400 font-bold block mb-1">W</label>
-                                    <input type="number" value={selectedNode.w} onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, w: parseInt(e.target.value) } : n))} className="w-full px-3 py-2 bg-slate-50 rounded-lg text-xs font-bold border-none outline-none" />
-                                </div>
-                                <div>
-                                    <label className="text-[9px] text-slate-400 font-bold block mb-1">H</label>
-                                    <input type="number" value={selectedNode.h} onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, h: parseInt(e.target.value) } : n))} className="w-full px-3 py-2 bg-slate-50 rounded-lg text-xs font-bold border-none outline-none" />
-                                </div>
+                                <Input label="X" type="number" value={selectedNode.x} onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, x: parseInt(e.target.value) } : n))} />
+                                <Input label="Y" type="number" value={selectedNode.y} onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, y: parseInt(e.target.value) } : n))} />
+                                <Input label="W" type="number" value={selectedNode.w} onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, w: parseInt(e.target.value) } : n))} />
+                                <Input label="H" type="number" value={selectedNode.h} onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, h: parseInt(e.target.value) } : n))} />
                             </div>
                         </div>
 
-                        {/* Visuals */}
                         <div>
                             <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Visuals</label>
                             <div className="space-y-3">
                                 {(selectedNode.type === 'label' || selectedNode.type === 'tank' || selectedNode.type === 'pump') && (
-                                    <div>
-                                        <label className="text-[9px] text-slate-400 font-bold block mb-1">Label Text</label>
-                                        <input type="text" value={selectedNode.label || ''} onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, label: e.target.value } : n))} className="w-full px-3 py-2 bg-slate-50 rounded-lg text-xs font-bold border-none outline-none" />
-                                    </div>
+                                    <Input label="Label Text" value={selectedNode.label || ''} onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, label: e.target.value } : n))} />
                                 )}
                                 {(selectedNode.type === 'value' || selectedNode.type === 'label') && (
-                                    <div>
-                                        <label className="text-[9px] text-slate-400 font-bold block mb-1">Display Text</label>
-                                        <input type="text" value={selectedNode.text || ''} onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, text: e.target.value } : n))} className="w-full px-3 py-2 bg-slate-50 rounded-lg text-xs font-bold border-none outline-none" />
-                                    </div>
+                                    <Input label="Display Text" value={selectedNode.text || ''} onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, text: e.target.value } : n))} />
                                 )}
                                 <div>
-                                    <label className="text-[9px] text-slate-400 font-bold block mb-1">Fill Color</label>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Fill Color</label>
                                     <div className="flex gap-2">
-                                        <input type="color" value={selectedNode.fill} onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, fill: e.target.value } : n))} className="h-8 w-10 p-0 border-none rounded cursor-pointer" />
-                                        <input type="text" value={selectedNode.fill} onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, fill: e.target.value } : n))} className="flex-1 px-3 py-2 bg-slate-50 rounded-lg text-xs font-mono outline-none" />
+                                        <input type="color" value={selectedNode.fill} onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, fill: e.target.value } : n))} className="h-11 w-12 rounded-xl cursor-pointer border border-slate-200 p-1 bg-white" />
+                                        <Input value={selectedNode.fill} onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, fill: e.target.value } : n))} className="font-mono text-xs" />
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Data Binding */}
                         <div className="pt-4 border-t border-slate-50">
                             <label className="block text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-3">Data Binding</label>
                             
                             <div className="space-y-3">
-                                <div>
-                                    <label className="text-[9px] text-slate-400 font-bold block mb-1">Device</label>
-                                    <select 
-                                        value={selectedNode.binding?.deviceId || ''}
-                                        onChange={e => {
-                                            const devId = e.target.value;
-                                            const newBinding = devId ? { deviceId: devId, metricKey: '', targetProp: 'value' as const, max: 100 } : undefined;
-                                            setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, binding: newBinding } : n));
-                                        }}
-                                        className="w-full px-3 py-2 bg-indigo-50 rounded-lg text-xs font-bold outline-none border border-indigo-100 focus:border-indigo-300"
-                                    >
-                                        <option value="">-- No Binding --</option>
-                                        {devices.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                                    </select>
-                                </div>
+                                <Select 
+                                    label="Device"
+                                    value={selectedNode.binding?.deviceId || ''}
+                                    onChange={e => {
+                                        const devId = e.target.value;
+                                        const newBinding = devId ? { deviceId: devId, metricKey: '', targetProp: 'value' as const, max: 100 } : undefined;
+                                        setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, binding: newBinding } : n));
+                                    }}
+                                    options={[
+                                        { label: '-- No Binding --', value: '' },
+                                        ...devices.map(d => ({ label: d.name, value: d.id }))
+                                    ]}
+                                />
 
                                 {selectedNode.binding?.deviceId && (
                                     <>
-                                        <div>
-                                            <label className="text-[9px] text-slate-400 font-bold block mb-1">Metric</label>
-                                            <select 
-                                                value={selectedNode.binding.metricKey || ''}
-                                                onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, binding: { ...n.binding!, metricKey: e.target.value } } : n))}
-                                                className="w-full px-3 py-2 bg-indigo-50 rounded-lg text-xs font-bold outline-none border border-indigo-100 focus:border-indigo-300"
-                                            >
-                                                <option value="">-- Select Metric --</option>
-                                                {Object.keys(devices.find(d => d.id === selectedNode.binding?.deviceId)?.metrics || {}).map(m => (
-                                                    <option key={m} value={m}>{m}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="text-[9px] text-slate-400 font-bold block mb-1">Target Property</label>
-                                            <select 
-                                                value={selectedNode.binding.targetProp}
-                                                onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, binding: { ...n.binding!, targetProp: e.target.value as any } } : n))}
-                                                className="w-full px-3 py-2 bg-indigo-50 rounded-lg text-xs font-bold outline-none border border-indigo-100 focus:border-indigo-300"
-                                            >
-                                                <option value="value">Display Value</option>
-                                                <option value="level">Fill Level (Tank)</option>
-                                                <option value="fill">Fill Color (On/Off)</option>
-                                                <option value="flow_anim">Flow Animation (Pipe)</option>
-                                            </select>
-                                        </div>
+                                        <Select 
+                                            label="Metric"
+                                            value={selectedNode.binding.metricKey || ''}
+                                            onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, binding: { ...n.binding!, metricKey: e.target.value } } : n))}
+                                            options={[
+                                                { label: '-- Select Metric --', value: '' },
+                                                ...Object.keys(devices.find(d => d.id === selectedNode.binding?.deviceId)?.metrics || {}).map(m => ({ label: m, value: m }))
+                                            ]}
+                                        />
+                                        <Select 
+                                            label="Target Property"
+                                            value={selectedNode.binding.targetProp}
+                                            onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, binding: { ...n.binding!, targetProp: e.target.value as any } } : n))}
+                                            options={[
+                                                { label: 'Display Value', value: 'value' },
+                                                { label: 'Fill Level (Tank)', value: 'level' },
+                                                { label: 'Fill Color (On/Off)', value: 'fill' },
+                                                { label: 'Flow Animation (Pipe)', value: 'flow_anim' },
+                                            ]}
+                                        />
                                         {(selectedNode.binding.targetProp === 'level') && (
-                                            <div>
-                                                <label className="text-[9px] text-slate-400 font-bold block mb-1">Max Scale</label>
-                                                <input 
-                                                    type="number" 
-                                                    value={selectedNode.binding.max} 
-                                                    onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, binding: { ...n.binding!, max: parseFloat(e.target.value) } } : n))} 
-                                                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" 
-                                                />
-                                            </div>
+                                            <Input label="Max Scale" type="number" value={selectedNode.binding.max} onChange={e => setNodes(nodes.map(n => n.id === selectedNode.id ? { ...n, binding: { ...n.binding!, max: parseFloat(e.target.value) } } : n))} />
                                         )}
                                     </>
                                 )}
                             </div>
                         </div>
                     </div>
-                </div>
+                </Card>
             )}
         </div>
     );

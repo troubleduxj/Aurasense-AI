@@ -131,6 +131,7 @@ export const chatWithCopilot = async (
     - "inventory", "list", "devices" -> "inventory"
     - "dashboard", "charts" -> "dashboard_monitor"
     - "analysis", "history" -> "history_analysis"
+    - "alarm", "alerts" -> "alarm_center"
     
     User Input: "${userMessage}"
     
@@ -161,5 +162,31 @@ export const chatWithCopilot = async (
 
     } catch (error) {
         return { text: "System Error: AI Service Unavailable." };
+    }
+};
+
+// [V3.3] AI Alarm Suggestions
+export const suggestThresholds = async (deviceType: string, metricKey: string) => {
+    const prompt = `
+    I am configuring an alarm for an industrial IoT device.
+    Device Type: "${deviceType}"
+    Metric: "${metricKey}"
+    
+    Please suggest a reasonable "High Warning" threshold value.
+    Return a JSON object: { "recommended_threshold": number, "reason": "string" }
+    
+    Example: For a CPU, 85 is high. For temperature, 80 might be high depending on context.
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: prompt,
+            config: { responseMimeType: "application/json" }
+        });
+        return JSON.parse(response.text || '{}');
+    } catch (error) {
+        console.error("AI Suggestion failed", error);
+        return { recommended_threshold: 0, reason: "Service unavailable" };
     }
 };

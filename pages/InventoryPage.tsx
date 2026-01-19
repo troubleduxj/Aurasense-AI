@@ -1,13 +1,17 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Device, DeviceStatus, DeviceType, DeviceCategory } from '../types';
+import { Button } from '../components/ui/Button';
+import { Card } from '../components/ui/Card';
+import { Input, Select } from '../components/ui/Input';
+import { Badge } from '../components/ui/Badge';
+import { Modal } from '../components/ui/Modal';
 
 interface InventoryPageProps {
   devices: Device[];
   categories: DeviceCategory[];
   onSaveDevice: (device: Partial<Device>) => void;
   onDeleteDevice: (id: string) => void;
-  // Lifted state props
   filters: {
       search: string;
       type: string;
@@ -16,17 +20,17 @@ interface InventoryPageProps {
   onFilterChange: (filters: { search: string; type: string; status: string }) => void;
 }
 
-const getStatusColor = (status: DeviceStatus) => {
+const getStatusVariant = (status: DeviceStatus) => {
     switch (status) {
-      case DeviceStatus.ONLINE: return 'bg-emerald-500';
-      case DeviceStatus.WARNING: return 'bg-amber-500';
-      case DeviceStatus.CRITICAL: return 'bg-rose-500';
-      default: return 'bg-slate-400';
+      case DeviceStatus.ONLINE: return 'success';
+      case DeviceStatus.WARNING: return 'warning';
+      case DeviceStatus.CRITICAL: return 'danger';
+      default: return 'neutral';
     }
 };
 
 export const InventoryPage: React.FC<InventoryPageProps> = ({ devices, categories, onSaveDevice, onDeleteDevice, filters, onFilterChange }) => {
-  const [viewMode, setViewMode] = useState<'table' | 'card'>('table'); // State for view switching
+  const [viewMode, setViewMode] = useState<'table' | 'card'>('table');
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const [isAddingDevice, setIsAddingDevice] = useState(false);
   const [deviceForm, setDeviceForm] = useState<Partial<Device>>({});
@@ -42,7 +46,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({ devices, categorie
         location: '',
         ip: '',
         categoryId: '',
-        metrics: {} // Initialize with empty metrics dictionary
+        metrics: {}
       });
     }
   }, [editingDevice, isAddingDevice]);
@@ -72,91 +76,94 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({ devices, categorie
 
   return (
     <div className="space-y-6">
-         {/* 顶部筛选栏 */}
-         <div className="flex flex-col xl:flex-row xl:justify-between xl:items-center bg-white p-4 rounded-3xl border border-slate-100 shadow-sm gap-4">
+         {/* Top Filter Bar */}
+         <Card className="flex flex-col xl:flex-row xl:justify-between xl:items-center gap-4 p-4">
              <div className="flex flex-wrap items-center gap-4 flex-1">
                  {/* Active Filter Indicator */}
                  {(filters.search || filters.type !== 'ALL' || filters.status !== 'ALL') && (
                      <div className="flex items-center gap-2 mr-2">
                          <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Active Filters:</span>
-                         <button 
+                         <Button 
+                            variant="ghost" 
+                            size="sm"
                             onClick={() => onFilterChange({ search: '', type: 'ALL', status: 'ALL' })}
-                            className="px-2 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-bold hover:bg-indigo-100 transition-colors flex items-center gap-1"
+                            icon={<svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>}
                          >
-                             Clear All <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
-                         </button>
+                             Clear
+                         </Button>
                      </div>
                  )}
 
-                 <div className="relative">
-                     <input 
-                        type="text" 
+                 <div className="w-64">
+                    <Input 
                         placeholder="搜索名称 / IP / ID..." 
                         value={filters.search}
                         onChange={e => onFilterChange({ ...filters, search: e.target.value })}
-                        className="pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-indigo-100 w-64 transition-all"
-                     />
-                     <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        className="py-2.5 text-xs"
+                        icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>}
+                    />
                  </div>
                  <div className="h-6 w-px bg-slate-100 hidden md:block"></div>
                  <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
                      {['ALL', DeviceType.GATEWAY, DeviceType.SENSOR, DeviceType.SERVER].map(t => (
-                         <button 
+                         <Button 
                             key={t} 
+                            variant={filters.type === t ? 'primary' : 'secondary'}
+                            size="sm"
                             onClick={() => onFilterChange({ ...filters, type: t })}
-                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all border whitespace-nowrap ${filters.type === t ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-transparent text-slate-400 hover:bg-slate-50'}`}
+                            className={filters.type === t ? 'bg-indigo-50 text-indigo-600 border-indigo-200 shadow-none' : ''}
                          >
                              {t === 'ALL' ? '所有类型' : t}
-                         </button>
+                         </Button>
                      ))}
                  </div>
                  <div className="h-6 w-px bg-slate-100 hidden md:block"></div>
                  <div className="flex items-center gap-2">
                      {['ALL', DeviceStatus.ONLINE, DeviceStatus.WARNING, DeviceStatus.OFFLINE].map(s => (
-                         <button 
+                         <Button 
                             key={s} 
+                            variant={filters.status === s ? 'primary' : 'secondary'}
+                            size="sm"
                             onClick={() => onFilterChange({ ...filters, status: s })}
-                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all border whitespace-nowrap ${filters.status === s ? 'bg-slate-800 border-slate-800 text-white' : 'bg-white border-transparent text-slate-400 hover:bg-slate-50'}`}
+                            className={filters.status === s ? 'bg-slate-800 text-white border-slate-800' : ''}
                          >
                              {s === 'ALL' ? '全部状态' : s}
-                         </button>
+                         </Button>
                      ))}
                  </div>
              </div>
 
              <div className="flex items-center gap-3">
-                 {/* 视图切换按钮 */}
                  <div className="bg-slate-50 p-1 rounded-xl border border-slate-100 flex items-center">
                     <button 
                         onClick={() => setViewMode('table')}
                         className={`p-2 rounded-lg transition-all ${viewMode === 'table' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                        title="列表视图"
                     >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
                     </button>
                     <button 
                         onClick={() => setViewMode('card')}
                         className={`p-2 rounded-lg transition-all ${viewMode === 'card' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                        title="卡片视图"
                     >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
                     </button>
                  </div>
 
-                 <button 
+                 <Button 
+                    variant="primary"
+                    size="md"
                     onClick={() => { setIsAddingDevice(true); setEditingDevice(null); }}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-xs hover:bg-indigo-700 transition-all shadow-lg hover:shadow-indigo-200 whitespace-nowrap"
+                    icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>}
                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
-                    <span>新增设备</span>
-                 </button>
+                    新增设备
+                 </Button>
              </div>
-         </div>
+         </Card>
 
-         {/* 内容展示区域：根据 viewMode 切换 */}
+         {/* Content Area */}
          {viewMode === 'table' ? (
-             /* --- 列表模式 (Table View) --- */
-             <div className="glass-panel border border-slate-200 rounded-[32px] overflow-hidden bg-white shadow-sm">
+             /* --- Table View --- */
+             <div className="bg-white border border-slate-200 rounded-[32px] overflow-hidden shadow-sm">
                <table className="w-full text-left">
                  <thead>
                     <tr className="bg-slate-50/80 border-b border-slate-100">
@@ -179,7 +186,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({ devices, categorie
                                    <div className="flex items-center gap-2">
                                       <p className="font-bold text-slate-800 text-sm">{d.name}</p>
                                       {d.categoryId && (
-                                          <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold">{getCategoryName(d.categoryId)}</span>
+                                          <Badge variant="neutral" className="text-[9px] px-1.5 py-0.5">{getCategoryName(d.categoryId)}</Badge>
                                       )}
                                    </div>
                                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">{d.id}</p>
@@ -202,29 +209,24 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({ devices, categorie
                            <span className="text-xs text-slate-500 font-medium">刚刚</span>
                        </td>
                        <td className="px-8 py-5">
-                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${
-                               d.status === DeviceStatus.ONLINE ? 'bg-emerald-50 text-emerald-600' : 
-                               d.status === DeviceStatus.WARNING ? 'bg-amber-50 text-amber-600' : 
-                               'bg-slate-100 text-slate-500'
-                           }`}>
-                               <span className={`w-1.5 h-1.5 rounded-full ${getStatusColor(d.status)}`}></span>
-                               {d.status}
-                           </span>
+                           <Badge variant={getStatusVariant(d.status)} dot>{d.status}</Badge>
                        </td>
                        <td className="px-8 py-5 text-right">
                            <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                               <button 
+                               <Button 
+                                  variant="secondary"
+                                  size="sm"
+                                  className="p-2"
                                   onClick={() => { setEditingDevice(d); setIsAddingDevice(false); }}
-                                  className="p-2 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-indigo-600 hover:border-indigo-300 transition-colors"
-                               >
-                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                               </button>
-                               <button 
+                                  icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>}
+                               />
+                               <Button 
+                                  variant="danger"
+                                  size="sm"
+                                  className="p-2 bg-white"
                                   onClick={() => onDeleteDevice(d.id)}
-                                  className="p-2 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-rose-600 hover:border-rose-300 transition-colors"
-                               >
-                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                               </button>
+                                  icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>}
+                               />
                            </div>
                        </td>
                      </tr>
@@ -241,28 +243,29 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({ devices, categorie
                </table>
              </div>
          ) : (
-            /* --- 卡片模式 (Card View) --- */
+            /* --- Card View --- */
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {filteredDevices.map(d => (
-                    <div key={d.id} className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all group relative overflow-hidden">
+                    <Card key={d.id} hoverEffect className="relative overflow-hidden group">
                         {/* Status Stripe */}
-                        <div className={`absolute top-0 left-0 right-0 h-1.5 ${getStatusColor(d.status)} opacity-80`}></div>
+                        <div className={`absolute top-0 left-0 right-0 h-1.5 opacity-80 ${d.status === DeviceStatus.ONLINE ? 'bg-emerald-500' : d.status === DeviceStatus.WARNING ? 'bg-amber-500' : d.status === DeviceStatus.CRITICAL ? 'bg-rose-500' : 'bg-slate-400'}`}></div>
                         
-                        {/* Action Buttons (Absolute Top Right) */}
-                         <div className="absolute top-4 right-4 flex gap-2">
-                             <button 
+                        <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all scale-90 group-hover:scale-100">
+                             <Button 
+                                variant="secondary" 
+                                size="sm" 
+                                className="p-2 h-8 w-8"
                                 onClick={() => { setEditingDevice(d); setIsAddingDevice(false); }}
-                                className="p-2 bg-slate-50 text-slate-400 rounded-xl hover:bg-indigo-50 hover:text-indigo-600 transition-colors opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100"
-                             >
-                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                             </button>
-                             <button 
+                                icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>}
+                             />
+                             <Button 
+                                variant="danger" 
+                                size="sm" 
+                                className="p-2 h-8 w-8 bg-white"
                                 onClick={() => onDeleteDevice(d.id)}
-                                className="p-2 bg-slate-50 text-slate-400 rounded-xl hover:bg-rose-50 hover:text-rose-600 transition-colors opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100"
-                             >
-                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                             </button>
-                         </div>
+                                icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>}
+                             />
+                        </div>
 
                         {/* Header Info */}
                         <div className="flex items-start gap-4 mb-5 mt-2">
@@ -272,8 +275,8 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({ devices, categorie
                             <div className="pr-12">
                                 <h4 className="font-bold text-slate-800 text-lg leading-tight mb-1 line-clamp-1" title={d.name}>{d.name}</h4>
                                 <div className="flex flex-wrap gap-1">
-                                    <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold">{d.type}</span>
-                                    {d.categoryId && <span className="text-[10px] bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded font-bold">{getCategoryName(d.categoryId)}</span>}
+                                    <Badge className="bg-slate-100 text-slate-500">{d.type}</Badge>
+                                    {d.categoryId && <Badge variant="primary" className="bg-indigo-50 text-indigo-500">{getCategoryName(d.categoryId)}</Badge>}
                                 </div>
                             </div>
                         </div>
@@ -282,10 +285,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({ devices, categorie
                         <div className="space-y-3 mb-6">
                             <div className="flex items-center justify-between py-1 border-b border-slate-50">
                                 <span className="text-[10px] font-black text-slate-400 uppercase">Status</span>
-                                <span className={`flex items-center gap-1.5 text-[10px] font-black uppercase ${d.status === DeviceStatus.ONLINE ? 'text-emerald-500' : d.status === DeviceStatus.WARNING ? 'text-amber-500' : 'text-slate-400'}`}>
-                                    <span className={`w-1.5 h-1.5 rounded-full ${getStatusColor(d.status)}`}></span>
-                                    {d.status}
-                                </span>
+                                <Badge variant={getStatusVariant(d.status)} dot>{d.status}</Badge>
                             </div>
                             <div className="flex items-center justify-between py-1 border-b border-slate-50">
                                 <span className="text-[10px] font-black text-slate-400 uppercase">IP Addr</span>
@@ -300,120 +300,74 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({ devices, categorie
                          <div className="text-[10px] text-slate-400 font-mono text-center bg-slate-50 py-1.5 rounded-lg truncate">
                              ID: {d.id}
                          </div>
-                    </div>
+                    </Card>
                 ))}
-                 {filteredDevices.length === 0 && (
-                     <div className="col-span-full text-center py-20">
-                         <p className="text-sm font-bold text-slate-400">未找到符合条件的设备</p>
-                         <p className="text-xs text-slate-300 mt-1">请尝试调整筛选条件或添加新设备</p>
-                     </div>
-                 )}
             </div>
          )}
 
-         {/* --- 设备编辑弹窗 --- */}
-        {(isAddingDevice || editingDevice) && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="bg-white rounded-[48px] shadow-2xl border border-white/40 w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
-             <div className="p-10 border-b border-slate-100 flex justify-between items-center bg-gradient-to-r from-white to-slate-50/30">
-               <div>
-                <h3 className="text-2xl font-black text-slate-800 tracking-tight">{editingDevice ? '维护设备资产' : '登记新设备'}</h3>
-                <p className="text-[10px] text-indigo-500 font-black uppercase tracking-[0.2em] mt-1">Device Metadata Management</p>
-               </div>
-               <button onClick={() => { setIsAddingDevice(false); setEditingDevice(null); }} className="p-3 text-slate-400 hover:text-rose-500 rounded-2xl transition-all duration-300">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
-               </button>
-             </div>
-             
-             <div className="flex-1 p-10 space-y-6 overflow-y-auto custom-scrollbar">
-                <div>
-                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">设备名称</label>
-                   <input 
-                      type="text" 
-                      value={deviceForm.name || ''} 
-                      onChange={e => setDeviceForm(prev => ({ ...prev, name: e.target.value }))}
-                      className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-[20px] font-bold text-slate-700 outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-400 transition-all"
-                      placeholder="输入设备名称..." 
+         {/* --- Edit Modal --- */}
+         <Modal 
+            isOpen={isAddingDevice || !!editingDevice} 
+            onClose={() => { setIsAddingDevice(false); setEditingDevice(null); }}
+            title={editingDevice ? '维护设备资产' : '登记新设备'}
+            subtitle="Device Metadata Management"
+            footer={
+                <>
+                    <Button variant="primary" onClick={handleSave} className="flex-1">保存设备信息</Button>
+                    <Button variant="secondary" onClick={() => { setIsAddingDevice(false); setEditingDevice(null); }}>取消</Button>
+                </>
+            }
+         >
+             <div className="space-y-6">
+                <Input 
+                    label="设备名称" 
+                    placeholder="输入设备名称..." 
+                    value={deviceForm.name || ''} 
+                    onChange={e => setDeviceForm(prev => ({ ...prev, name: e.target.value }))}
+                />
+
+                <Select 
+                    label="所属设备分类 (Device Category)"
+                    value={deviceForm.categoryId || ''}
+                    onChange={e => setDeviceForm(prev => ({ ...prev, categoryId: e.target.value }))}
+                    options={[
+                        { label: '-- 请选择分类 --', value: '' },
+                        ...categories.map(cat => ({ label: `${cat.name} (${cat.code})`, value: cat.id }))
+                    ]}
+                />
+                
+                <div className="grid grid-cols-2 gap-6">
+                   <Select 
+                        label="设备类型"
+                        value={deviceForm.type}
+                        onChange={e => setDeviceForm(prev => ({ ...prev, type: e.target.value as DeviceType }))}
+                        options={Object.values(DeviceType).map(t => ({ label: t, value: t }))}
+                   />
+                   <Select 
+                        label="初始状态"
+                        value={deviceForm.status}
+                        onChange={e => setDeviceForm(prev => ({ ...prev, status: e.target.value as DeviceStatus }))}
+                        options={Object.values(DeviceStatus).map(s => ({ label: s, value: s }))}
                    />
                 </div>
 
-                <div>
-                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">所属设备分类 (Device Category)</label>
-                   <div className="relative">
-                       <select 
-                          value={deviceForm.categoryId || ''} 
-                          onChange={e => setDeviceForm(prev => ({ ...prev, categoryId: e.target.value }))}
-                          className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-[20px] font-bold text-slate-700 outline-none appearance-none focus:ring-4 focus:ring-indigo-100"
-                       >
-                           <option value="">-- 请选择分类 --</option>
-                           {categories.map(cat => (
-                               <option key={cat.id} value={cat.id}>{cat.name} ({cat.code})</option>
-                           ))}
-                       </select>
-                       <svg className="w-4 h-4 text-slate-400 absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7" /></svg>
-                   </div>
-                </div>
-                
                 <div className="grid grid-cols-2 gap-6">
-                   <div>
-                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">设备类型</label>
-                       <div className="relative">
-                           <select 
-                              value={deviceForm.type} 
-                              onChange={e => setDeviceForm(prev => ({ ...prev, type: e.target.value as DeviceType }))}
-                              className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-[20px] font-bold text-slate-700 outline-none appearance-none"
-                           >
-                               {Object.values(DeviceType).map(t => <option key={t} value={t}>{t}</option>)}
-                           </select>
-                           <svg className="w-4 h-4 text-slate-400 absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7" /></svg>
-                       </div>
-                   </div>
-                   <div>
-                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">初始状态</label>
-                       <div className="relative">
-                           <select 
-                              value={deviceForm.status} 
-                              onChange={e => setDeviceForm(prev => ({ ...prev, status: e.target.value as DeviceStatus }))}
-                              className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-[20px] font-bold text-slate-700 outline-none appearance-none"
-                           >
-                               {Object.values(DeviceStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                           </select>
-                           <svg className="w-4 h-4 text-slate-400 absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7" /></svg>
-                       </div>
-                   </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-6">
-                   <div>
-                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">网络地址 (IP)</label>
-                       <input 
-                          type="text" 
-                          value={deviceForm.ip || ''} 
-                          onChange={e => setDeviceForm(prev => ({ ...prev, ip: e.target.value }))}
-                          className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-[20px] font-bold text-slate-700 outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-400 transition-all font-mono"
-                          placeholder="0.0.0.0" 
-                       />
-                   </div>
-                   <div>
-                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">物理位置</label>
-                       <input 
-                          type="text" 
-                          value={deviceForm.location || ''} 
-                          onChange={e => setDeviceForm(prev => ({ ...prev, location: e.target.value }))}
-                          className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-[20px] font-bold text-slate-700 outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-400 transition-all"
-                          placeholder="e.g. 机房 A-01" 
-                       />
-                   </div>
+                   <Input 
+                        label="网络地址 (IP)" 
+                        placeholder="0.0.0.0" 
+                        value={deviceForm.ip || ''} 
+                        onChange={e => setDeviceForm(prev => ({ ...prev, ip: e.target.value }))}
+                        className="font-mono"
+                   />
+                   <Input 
+                        label="物理位置" 
+                        placeholder="e.g. 机房 A-01" 
+                        value={deviceForm.location || ''} 
+                        onChange={e => setDeviceForm(prev => ({ ...prev, location: e.target.value }))}
+                   />
                 </div>
              </div>
-
-             <div className="p-10 bg-slate-50 border-t border-slate-100 flex gap-4">
-                <button onClick={handleSave} className="flex-1 py-4.5 bg-slate-900 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] hover:bg-slate-800 transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5">保存设备信息</button>
-                <button onClick={() => { setIsAddingDevice(false); setEditingDevice(null); }} className="px-10 py-4.5 bg-white border border-slate-200 text-slate-500 rounded-[24px] font-black text-xs uppercase tracking-widest hover:bg-slate-50 transition-all">取消</button>
-             </div>
-          </div>
-        </div>
-      )}
+         </Modal>
     </div>
   );
 };

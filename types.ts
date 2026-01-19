@@ -205,7 +205,7 @@ export type DashboardFilterState = Record<string, any>;
 
 export type MenuTargetType = 'system_page' | 'dashboard' | 'custom_content';
 
-export type SystemPageKey = 'monitor' | 'inventory' | 'history_analysis' | 'device_class' | 'source' | 'view' | 'chart' | 'dashboard_manage' | 'dashboard_monitor' | 'users' | 'roles' | 'security' | 'llm' | 'menu_manage' | 'metric_def' | 'page_config';
+export type SystemPageKey = 'monitor' | 'inventory' | 'history_analysis' | 'device_class' | 'source' | 'view' | 'chart' | 'dashboard_manage' | 'dashboard_monitor' | 'users' | 'roles' | 'security' | 'llm' | 'menu_manage' | 'metric_def' | 'page_config' | 'ui_gallery' | 'alarm_center';
 
 export interface MenuItem {
   id: string;
@@ -329,4 +329,32 @@ export interface ScadaNode {
     label?: string;
     fill?: string;
     binding?: ScadaBinding;
+}
+
+// [V3.3] Alarm System Types
+export type AlarmSeverity = 'critical' | 'warning' | 'info';
+
+export interface AlarmRule {
+    id: string;
+    name: string;
+    deviceType: string | 'ALL';
+    metricKey: string;
+    operator: '>' | '<' | '>=' | '<=' | '==' | '!=';
+    threshold: number;
+    severity: AlarmSeverity;
+    enabled: boolean;
+}
+
+export interface AlarmEvent {
+    id: string;
+    ruleId: string;
+    ruleName: string;
+    deviceId: string;
+    deviceName: string;
+    metricKey: string;
+    value: number;
+    threshold: number;
+    severity: AlarmSeverity;
+    timestamp: string;
+    status: 'active' | 'acknowledged' | 'resolved';
 }

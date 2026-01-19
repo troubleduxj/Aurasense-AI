@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { MOCK_DEVICES, MOCK_CATEGORIES, BI_SOURCES, BI_VIEWS, BI_CHARTS, BI_DASHBOARDS, INITIAL_MENU_CONFIG, MOCK_CUSTOM_PAGES } from './mockData';
+import { MOCK_DEVICES, MOCK_CATEGORIES, BI_SOURCES, BI_VIEWS, BI_CHARTS, BI_DASHBOARDS, INITIAL_MENU_CONFIG, MOCK_CUSTOM_PAGES, INITIAL_ALARM_RULES } from './mockData';
 import { METRIC_METADATA } from './constants';
-import { Device, DeviceStatus, ChartConfig, DataView, DataSource, Dashboard, DeviceCategory, User, Role, LLMConfig, AuthConfig, DeviceMetric, DeviceType, ChartInteractionPayload, MetricConfig, MenuItem, SystemPageKey, CustomPage, DashboardFilterState } from './types';
+import { Device, DeviceStatus, ChartConfig, DataView, DataSource, Dashboard, DeviceCategory, User, Role, LLMConfig, AuthConfig, DeviceMetric, DeviceType, ChartInteractionPayload, MetricConfig, MenuItem, SystemPageKey, CustomPage, DashboardFilterState, AlarmRule, AlarmEvent } from './types';
 import ReactMarkdown from 'react-markdown';
+import { ThemeProvider } from './contexts/ThemeContext'; // Import ThemeProvider
 
 // Components
 import { Sidebar } from './components/Sidebar';
@@ -24,6 +25,8 @@ import { ChartLabPage } from './pages/ChartLabPage';
 import { UsersPage, RolesPage, SecurityPage, LLMConfigPage } from './pages/SystemPages';
 import { MenuManagerPage } from './pages/MenuManagerPage';
 import { PageConfigPage } from './pages/PageConfigPage';
+import { ComponentGalleryPage } from './pages/ComponentGalleryPage';
+import { AlarmPage } from './pages/AlarmPage'; // New Page
 
 interface DrillDownItem {
     viewType: 'dashboard';
@@ -32,7 +35,7 @@ interface DrillDownItem {
     filters: DashboardFilterState;
 }
 
-const App: React.FC = () => {
+const AppContent: React.FC = () => {
   // --- Global Domain State ---
   const [devices, setDevices] = useState<Device[]>(MOCK_DEVICES);
   const [categories, setCategories] = useState<DeviceCategory[]>(MOCK_CATEGORIES);
@@ -46,6 +49,11 @@ const App: React.FC = () => {
   // --- V3: Dynamic Menu State ---
   const [menuConfig, setMenuConfig] = useState<MenuItem[]>(INITIAL_MENU_CONFIG);
   const [activeMenuId, setActiveMenuId] = useState<string>('menu_mon_1'); 
+
+  // --- [V3.3] Alarm System State ---
+  const [alarmRules, setAlarmRules] = useState<AlarmRule[]>(INITIAL_ALARM_RULES);
+  const [alarmEvents, setAlarmEvents] = useState<AlarmEvent[]>([]);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
 
   // --- [V3.2] Drill Down Stack ---
   const [drillDownStack, setDrillDownStack] = useState<DrillDownItem[]>([]);
@@ -110,7 +118,6 @@ const App: React.FC = () => {
 
   // --- Interaction Handler (Drill Down) ---
   const handleChartClick = (payload: ChartInteractionPayload) => {
-      // ... (keep existing logic)
       console.log('Chart Clicked:', payload);
       
       const chart = charts.find(c => c.id === payload.chartId);
@@ -145,41 +152,100 @@ const App: React.FC = () => {
       }
   };
 
-  // --- Real-time Data Simulation ---
+  // --- Real-time data simulation & Alarm Check ---
   useEffect(() => {
     const interval = setInterval(() => {
-      setDevices(prev => prev.map(dev => {
-        if (dev.status === DeviceStatus.OFFLINE) return dev;
-        const updatedMetrics: Record<string, DeviceMetric[]> = {};
-        Object.keys(dev.metrics).forEach(key => {
-            const history = dev.metrics[key];
-            if (!history || history.length === 0) return;
-            const last = history[history.length - 1];
-            const newVal = Math.max(0, last.value + (Math.random() * 4 - 2)); 
-            const newHistory = [...history.slice(history.length > 20 ? 1 : 0), { 
-                ...last, 
-                value: Number(newVal.toFixed(1)), 
-                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
-            }];
-            updatedMetrics[key] = newHistory;
-        });
-        return { ...dev, metrics: updatedMetrics };
-      }));
+      // 1. Update Metrics
+      setDevices(prev => {
+          const updatedDevices = prev.map(dev => {
+            if (dev.status === DeviceStatus.OFFLINE) return dev;
+            const updatedMetrics: Record<string, DeviceMetric[]> = {};
+            Object.keys(dev.metrics).forEach(key => {
+                const history = dev.metrics[key];
+                if (!history || history.length === 0) return;
+                const last = history[history.length - 1];
+                const newVal = Math.max(0, last.value + (Math.random() * 4 - 2)); 
+                const newHistory = [...history.slice(history.length > 20 ? 1 : 0), { 
+                    ...last, 
+                    value: Number(newVal.toFixed(1)), 
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+                }];
+                updatedMetrics[key] = newHistory;
+            });
+            return { ...dev, metrics: updatedMetrics };
+          });
+
+          // 2. Check Alarms against Updated Devices
+          const newEvents: AlarmEvent[] = [];
+          updatedDevices.forEach(dev => {
+              if (dev.status === DeviceStatus.OFFLINE) return;
+              
+              alarmRules.forEach(rule => {
+                  if (!rule.enabled) return;
+                  if (rule.deviceType !== 'ALL' && rule.deviceType !== dev.type) return;
+                  
+                  const history = dev.metrics[rule.metricKey];
+                  if (!history || history.length === 0) return;
+                  
+                  const latestVal = history[history.length - 1].value;
+                  let triggered = false;
+                  
+                  switch(rule.operator) {
+                      case '>': triggered = latestVal > rule.threshold; break;
+                      case '>=': triggered = latestVal >= rule.threshold; break;
+                      case '<': triggered = latestVal < rule.threshold; break;
+                      case '<=': triggered = latestVal <= rule.threshold; break;
+                      case '==': triggered = latestVal === rule.threshold; break;
+                      case '!=': triggered = latestVal !== rule.threshold; break;
+                  }
+
+                  if (triggered) {
+                      // Check duplication (throttle) - simplified: only add if not active recently for this device/rule
+                      // In a real app, we'd check existing active alarms.
+                      // Here we just push to state, let the state setter handle dedup or we just show log.
+                      newEvents.push({
+                          id: `evt-${Date.now()}-${Math.random().toString(36).substr(2,5)}`,
+                          ruleId: rule.id,
+                          ruleName: rule.name,
+                          deviceId: dev.id,
+                          deviceName: dev.name,
+                          metricKey: rule.metricKey,
+                          value: latestVal,
+                          threshold: rule.threshold,
+                          severity: rule.severity,
+                          timestamp: new Date().toISOString(),
+                          status: 'active'
+                      });
+                  }
+              });
+          });
+
+          if (newEvents.length > 0) {
+              setAlarmEvents(prev => {
+                  // Filter out spam: don't add if there is already an active alarm for same device+rule
+                  const filteredNew = newEvents.filter(ne => 
+                      !prev.some(pe => pe.status === 'active' && pe.deviceId === ne.deviceId && pe.ruleId === ne.ruleId)
+                  );
+                  if (filteredNew.length === 0) return prev;
+                  return [...filteredNew, ...prev].slice(0, 100); // Keep last 100
+              });
+          }
+
+          return updatedDevices;
+      });
     }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [alarmRules]); // Re-bind if rules change
 
   // --- Derived Stats ---
   const stats = useMemo(() => ({
     online: devices.filter(d => d.status === DeviceStatus.ONLINE).length,
-  }), [devices]);
+    activeAlarms: alarmEvents.filter(e => e.status === 'active').length
+  }), [devices, alarmEvents]);
 
   // --- Copilot Navigation Handler ---
   const handleCopilotNavigate = (targetKey: string) => {
-      // Simple mapping logic. In a real app, use a proper router/lookup
       let foundId = '';
-      
-      // 1. Try to find in system pages
       const systemPageMap: Record<string, string> = {
           'monitor': 'menu_mon_2',
           'inventory': 'menu_ast_1',
@@ -190,14 +256,8 @@ const App: React.FC = () => {
       if (systemPageMap[targetKey]) {
           foundId = systemPageMap[targetKey];
       } else {
-          // 2. Try to find exact menu ID or dashboard ID match
-          // Simplified: just check if targetKey matches a menu ID
           foundId = 'menu_mon_1'; // Fallback
       }
-      
-      // Since we don't have a full flat map of menu IDs readily available in this simple logic, 
-      // we'll just set it if we mapped it, otherwise default to home.
-      // Ideally, recurse menuConfig to find the ID.
       
       const findMenuIdByTarget = (items: MenuItem[], target: string): string | null => {
           for(const item of items) {
@@ -247,6 +307,11 @@ const App: React.FC = () => {
   const handleUpdateMenu = (m: MenuItem[]) => setMenuConfig(m);
   const handleSavePage = (p: CustomPage) => setCustomPages(prev => { const exists = prev.some(item => item.id === p.id); return exists ? prev.map(item => item.id === p.id ? p : item) : [...prev, p]; });
   const handleDeletePage = (id: string) => { if (window.confirm('Confirm delete?')) setCustomPages(prev => prev.filter(p => p.id !== id)); };
+  
+  // Alarm Handlers
+  const handleSaveRule = (r: AlarmRule) => setAlarmRules(prev => { const exists = prev.some(item => item.id === r.id); return exists ? prev.map(item => item.id === r.id ? r : item) : [...prev, r]; });
+  const handleDeleteRule = (id: string) => setAlarmRules(prev => prev.filter(r => r.id !== id));
+  const handleAcknowledgeEvent = (id: string) => setAlarmEvents(prev => prev.map(e => e.id === id ? { ...e, status: 'acknowledged' } : e));
 
   if (fullScreenDashboards && fullScreenDashboards.length > 0) {
       return <BigScreenView dashboards={fullScreenDashboards} charts={charts} devices={devices} dataViews={dataViews} onExit={() => setFullScreenDashboards(null)} cycleInterval={cycleInterval} />;
@@ -306,6 +371,7 @@ const App: React.FC = () => {
           if (activeMenuItem.targetType === 'system_page') {
               switch (activeMenuItem.targetId as SystemPageKey) {
                   case 'dashboard_monitor': return <DashboardMonitorPage dashboards={dashboards} charts={charts} devices={devices} dataViews={dataViews} onLaunchFullScreen={handleLaunchFullScreen} onChartClick={handleChartClick} />;
+                  case 'alarm_center': return <AlarmPage rules={alarmRules} events={alarmEvents} onSaveRule={handleSaveRule} onDeleteRule={handleDeleteRule} onAcknowledgeEvent={handleAcknowledgeEvent} />;
                   case 'monitor': return <MonitorPage devices={devices} categories={categories} metricConfig={metricConfig} />;
                   case 'history_analysis': return <HistoryAnalysisPage devices={devices} metricConfig={metricConfig} />;
                   case 'inventory': return <InventoryPage devices={devices} categories={categories} onSaveDevice={handleSaveDevice} onDeleteDevice={handleDeleteDevice} filters={inventoryFilters} onFilterChange={setInventoryFilters} />;
@@ -321,6 +387,7 @@ const App: React.FC = () => {
                   case 'llm': return <LLMConfigPage llmConfig={llmConfig} onSaveConfig={setLlmConfig} />;
                   case 'menu_manage': return <MenuManagerPage menuConfig={menuConfig} dashboards={dashboards} customPages={customPages} roles={roles} onUpdateMenu={handleUpdateMenu} />;
                   case 'page_config': return <PageConfigPage customPages={customPages} dashboards={dashboards} onSavePage={handleSavePage} onDeletePage={handleDeletePage} />;
+                  case 'ui_gallery': return <ComponentGalleryPage />;
                   default: return <div>Unknown Page</div>;
               }
           }
@@ -348,8 +415,30 @@ const App: React.FC = () => {
                 {drillDownStack.length > 0 ? 'Drill-down View' : (activeMenuItem?.type === 'PAGE' ? (activeMenuItem.targetType === 'dashboard' ? 'Custom Dashboard' : activeMenuItem.targetType === 'custom_content' ? 'Custom Page' : activeMenuItem.targetId?.toUpperCase().replace('_', ' ')) : 'Section')}
             </p>
           </div>
-          <div className="flex bg-white rounded-2xl border border-slate-200 p-1 shadow-sm">
-            <div className="px-4 py-2 text-[10px] font-black text-emerald-600 flex items-center gap-1.5 uppercase"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> {stats.online} 在线</div>
+          <div className="flex gap-4">
+              {/* Alarm Bell */}
+              <div className="relative">
+                  <button 
+                    onClick={() => {
+                        // Quick navigate or open dropdown
+                        const alarmMenuId = menuConfig.find(m => m.children?.some(c => c.targetId === 'alarm_center'))?.children?.find(c => c.targetId === 'alarm_center')?.id;
+                        if (alarmMenuId) setActiveMenuId(alarmMenuId);
+                        else alert('Go to Monitoring -> Alarm Center');
+                    }}
+                    className={`p-3 rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-md transition-all relative ${stats.activeAlarms > 0 ? 'text-rose-500' : 'text-slate-400'}`}
+                  >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                      {stats.activeAlarms > 0 && (
+                          <span className="absolute -top-1 -right-1 w-5 h-5 bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full shadow-sm animate-pulse">
+                              {stats.activeAlarms > 99 ? '99+' : stats.activeAlarms}
+                          </span>
+                      )}
+                  </button>
+              </div>
+
+              <div className="flex bg-white rounded-2xl border border-slate-200 p-1 shadow-sm h-fit">
+                <div className="px-4 py-2 text-[10px] font-black text-emerald-600 flex items-center gap-1.5 uppercase"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> {stats.online} 在线</div>
+              </div>
           </div>
         </header>
         {renderContent()}
@@ -364,5 +453,12 @@ const App: React.FC = () => {
     </div>
   );
 };
+
+// Wrap App in ThemeProvider
+const App = () => (
+  <ThemeProvider>
+    <AppContent />
+  </ThemeProvider>
+);
 
 export default App;
